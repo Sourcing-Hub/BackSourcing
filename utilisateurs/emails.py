@@ -92,3 +92,30 @@ def envoyer_email_reinitialisation_mdp(utilisateur):
         recipient_list=[utilisateur.email],
         fail_silently=False,
     )
+
+
+def envoyer_email_activation_candidat(utilisateur):
+    """
+    Envoyé au candidat après sa soumission de candidature s'il n'a pas de compte.
+    """
+    lien = _url_frontend(f"auth/activer/{utilisateur.tokenActivation}")
+
+    sujet = "[SourcingHub] Activation de votre compte Candidat"
+    message = (
+        f"Bonjour {utilisateur.first_name},\n\n"
+        f"Merci d'avoir postulé sur SourcingHub.\n"
+        f"Votre compte candidat a été créé automatiquement. "
+        f"Pour activer votre compte et suivre l'état de votre candidature, veuillez cliquer sur le lien ci-dessous :\n"
+        f"{lien}\n\n"
+        f"Ce lien est valide pendant {getattr(settings, 'DELAI_ACTIVATION_TOKEN_HEURES', 48)} heures.\n\n"
+        f"L'équipe SourcingHub"
+    )
+
+    send_mail(
+        subject=sujet,
+        message=message,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[utilisateur.email],
+        fail_silently=False,
+    )
+
