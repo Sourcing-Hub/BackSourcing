@@ -264,3 +264,27 @@ class CampagnePubliqueListeView(APIView):
         ).select_related('cohorte__formation')
         return Response(CampagneListeSerializer(qs, many=True).data)
 
+
+class CampagnePubliqueDetailView(APIView):
+    """
+    GET /api/campagnes/publiques/<id>/
+    Accès public. Retourne les détails d'une campagne ouverte et publiée.
+    """
+    permission_classes = []
+
+    def get(self, request, pk):
+        from django.utils import timezone
+        now = timezone.now()
+        try:
+            obj = Campagne.objects.select_related('cohorte__formation').get(
+                pk=pk,
+                statut='OUVERTE',
+                publiee=True,
+                dateOuverture__lte=now,
+                dateCloture__gte=now
+            )
+        except Campagne.DoesNotExist:
+            return Response({"detail": "Cette campagne de recrutement n'est pas accessible ou est fermée."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CampagneDetailSerializer(obj).data)
+
+
