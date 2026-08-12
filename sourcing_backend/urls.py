@@ -18,6 +18,9 @@ urlpatterns = [
     # Formulaires dynamiques
     path('api/formulaires/', include('formulaires.urls')),
 
+    # Candidatures
+    path('api/candidatures/', include('candidatures.urls')),
+
     # Documentation API (Swagger / ReDoc)
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/swagger/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
