@@ -206,13 +206,20 @@ class CampagneDetailView(APIView):
         obj = self._get_object(pk)
         if not obj:
             return Response({"detail": "Campagne introuvable."}, status=status.HTTP_404_NOT_FOUND)
-        if obj.statut == 'ARCHIVEE':
-            return Response({"detail": "Une campagne archivée ne peut plus être modifiée."}, status=status.HTTP_400_BAD_REQUEST)
         s = CampagneDetailSerializer(obj, data=request.data, partial=True, context={'request': request})
         if s.is_valid():
             s.save()
             return Response(s.data)
         return Response(s.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        if not request.user.est_admin():
+            return Response({"detail": "Réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
+        obj = self._get_object(pk)
+        if not obj:
+            return Response({"detail": "Campagne introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class CampagneOuvrirView(APIView):
@@ -223,8 +230,6 @@ class CampagneOuvrirView(APIView):
             campagne = Campagne.objects.get(pk=pk)
         except Campagne.DoesNotExist:
             return Response({"detail": "Campagne introuvable."}, status=status.HTTP_404_NOT_FOUND)
-        if campagne.statut == 'ARCHIVEE':
-            return Response({"detail": "Impossible d'ouvrir une campagne archivée."}, status=status.HTTP_400_BAD_REQUEST)
         campagne.ouvrir()
         return Response({"detail": f"La campagne « {campagne.nom} » est maintenant ouverte."})
 
@@ -241,13 +246,21 @@ class CampagneFermerView(APIView):
         return Response({"detail": f"La campagne « {campagne.nom} » a été fermée."})
 
 
-class CampagneArchiverView(APIView):
-    permission_classes = [EstAdministrateur]
+class CampagnePubliqueListeView(APIView):
+    """
+    GET /api/campagnes/publiques/
+    Accès public. Liste uniquement les campagnes ouvertes et publiées.
+    """
+    permission_classes = []
 
-    def post(self, request, pk):
-        try:
-            campagne = Campagne.objects.get(pk=pk)
-        except Campagne.DoesNotExist:
-            return Response({"detail": "Campagne introuvable."}, status=status.HTTP_404_NOT_FOUND)
-        campagne.archiver()
-        return Response({"detail": f"La campagne « {campagne.nom} » a été archivée."})
+    def get(self, request):
+        from django.utils import timezone
+        now = timezone.now()
+        qs = Campagne.objects.filter(
+            statut='OUVERTE',
+            publiee=True,
+            dateOuverture__lte=now,
+            dateCloture__gte=now
+        ).select_related('cohorte__formation')
+        return Response(CampagneListeSerializer(qs, many=True).data)
+

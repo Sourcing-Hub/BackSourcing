@@ -10,7 +10,6 @@ class StatutCampagne(models.TextChoices):
     BROUILLON  = 'BROUILLON',  'Brouillon'
     OUVERTE    = 'OUVERTE',    'Ouverte'
     FERMEE     = 'FERMEE',     'Fermée'
-    ARCHIVEE   = 'ARCHIVEE',   'Archivée'
 
 
 # ─────────────────────────────────────────────
@@ -103,9 +102,3 @@ class Campagne(models.Model):
     def fermer(self):
         self.statut = StatutCampagne.FERMEE
         self.save(update_fields=['statut', 'dateModification'])
-
-    def archiver(self):
-        self.statut   = StatutCampagne.ARCHIVEE
-        self.archivee = True
-        self.publiee  = False
-        self.save(update_fields=['statut', 'archivee', 'publiee', 'dateModification'])
