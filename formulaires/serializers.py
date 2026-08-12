@@ -174,5 +174,5 @@ class AssociationCampagneSerializer(serializers.Serializer):
     def save(self):
         formulaire = self.context['formulaire']
         formulaire.campagne = self.validated_data['campagne_id']
-        formulaire.save(update_fields=['campagne'])
+        formulaire.save()
         return formulaire
