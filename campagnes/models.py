@@ -89,6 +89,18 @@ class Campagne(models.Model):
     def __str__(self):
         return self.nom
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        try:
+            if hasattr(self, 'formulaire') and self.formulaire:
+                form = self.formulaire
+                expected_publie = self.est_ouverte()
+                if form.publie != expected_publie:
+                    form.publie = expected_publie
+                    form.save(update_fields=['publie'])
+        except Exception:
+            pass
+
     # ── Actions métier ──────────────────────────────────────
     def est_ouverte(self) -> bool:
         now = timezone.now()

@@ -77,6 +77,11 @@ class Formulaire(models.Model):
         self.publie = False
         self.save(update_fields=['publie', 'dateModification'])
 
+    def save(self, *args, **kwargs):
+        if self.campagne:
+            self.publie = self.campagne.est_ouverte()
+        super().save(*args, **kwargs)
+
     def nombre_champs(self) -> int:
         return self.champs.count()
 
