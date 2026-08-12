@@ -92,14 +92,15 @@ class FormulaireListeSerializer(serializers.ModelSerializer):
 # ─────────────────────────────────────────────
 
 class FormulaireDetailSerializer(serializers.ModelSerializer):
-    champs        = ChampFormulaireSerializer(many=True, read_only=True)
-    campagne_nom  = serializers.SerializerMethodField()
+    champs                 = ChampFormulaireSerializer(many=True, read_only=True)
+    campagne_nom           = serializers.SerializerMethodField()
+    campagne_est_ouverte   = serializers.SerializerMethodField()
 
     class Meta:
         model = Formulaire
         fields = [
             'id', 'titre', 'description', 'publie',
-            'campagne', 'campagne_nom',
+            'campagne', 'campagne_nom', 'campagne_est_ouverte',
             'champs',
             'dateCreation', 'dateModification',
         ]
@@ -107,6 +108,9 @@ class FormulaireDetailSerializer(serializers.ModelSerializer):
 
     def get_campagne_nom(self, obj):
         return obj.campagne.nom if obj.campagne else None
+
+    def get_campagne_est_ouverte(self, obj):
+        return obj.campagne.est_ouverte() if obj.campagne else True
 
     def create(self, validated_data):
         request = self.context.get('request')
