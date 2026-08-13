@@ -1,4 +1,5 @@
-# Architecture du Backend SourcingHub
+# Architecture Backend SourcingHub (Django REST Framework)
+Dernière mise à jour : 2026-08-13 (v1.2.0)
 
 Ce document décrit l'architecture et les choix techniques du backend Django (REST Framework) développé pour SourcingHub.
 
