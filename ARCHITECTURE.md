@@ -1,52 +1,84 @@
 # Architecture Backend SourcingHub (Django REST Framework)
 Dernière mise à jour : 2026-08-13 (v1.2.0)
 
-Ce document décrit l'architecture et les choix techniques du backend Django (REST Framework) développé pour SourcingHub.
+Ce document décrit l'architecture logicielle, la modélisation des données, les règles métier et la sécurité de l'API backend Django REST Framework développée pour SourcingHub.
+
+---
 
 ## 1. Stack Technique
-- **Framework** : Django 6.1
-- **API** : Django REST Framework (DRF)
-- **Base de données** : SQLite (par défaut pour le développement)
+
+- **Framework principal** : Django 6.1
+- **API Engine** : Django REST Framework (DRF)
+- **Base de données** : SQLite (développement) / PostgreSQL (production)
 - **Authentification** : JWT (JSON Web Tokens) via `djangorestframework-simplejwt`
-- **Documentation API** : Swagger/ReDoc via `drf-spectacular`
-- **CORS** : `django-cors-headers` pour autoriser les requêtes du frontend Vue.js
+- **Documentation API** : OpenAPI v3 / Swagger UI / ReDoc via `drf-spectacular`
+- **Gestion des CORS** : `django-cors-headers` pour autoriser le frontend Vue.js 3
+
+---
 
 ## 2. Découpage Modulaire (Applications Django)
 
-L'architecture suit les principes de modularité de Django avec des "Apps" indépendantes :
+L'architecture suit les principes de modularité de Django avec des applications indépendantes et hautement découplées :
 
-### `utilisateurs`
-Gère l'authentification et les permissions.
-- **Modèles** : `Utilisateur` (Custom User Model), `Role` (Candidat, Admin, Evaluateur, etc.)
-- **Logique** : Authentification par JWT, activation de compte par email, permissions personnalisées pour restreindre l'accès aux APIs.
+### application `utilisateurs`
+Gère l'authentification, les comptes utilisateurs et les autorisations.
+- **Modèles** :
+  - `Utilisateur` (Custom User Model) : Hérite de `AbstractUser`, stocke le téléphone, sexe, état de profil (`profilComplet`), état d'activation (`compteActive`) et le token d'activation.
+  - `Role` : Définit les 5 rôles système (`Candidat`, `Administrateur`, `Évaluateur`, `Équipe Pédagogique`, `Équipe Gestion de Projet`).
+- **Services** :
+  - `emails.py` : Envoi d'invitations personnalisées par rôle avec description des responsabilités.
+  - `permissions.py` : Contrôle d'accès basé sur les méthodes `est_admin()`, `est_equipe_pedagogique()`, etc.
 
-### `campagnes`
-Gère la définition des sessions de recrutement.
-- **Modèles** : `Formation`, `Cohorte` (liée à une formation), `Campagne` (liée à une cohorte, possède des dates et un statut).
-- **Logique** : API pour le CRUD et machines d'état (Ouvrir, Fermer, Archiver une campagne).
+### application `campagnes`
+Gère les programmes de formation, les promotions et les campagnes de recrutement.
+- **Modèles** :
+  - `Formation` : Intitulé, description et dates de démarrage.
+  - `Cohorte` : Liée à une formation (`ForeignKey`). Possède la contrainte d'unicité `unique_together = [('nom', 'formation')]`.
+  - `Campagne` : Liée à une cohorte, gère le statut (`BROUILLON`, `OUVERTE`, `FERMEE`).
+- **Logique Métier** :
+  - Machine d'état `est_ouverte()`, `ouvrir()`, `fermer()`.
+  - Empêche l'ouverture d'une campagne si aucun formulaire valide ne lui est associé.
 
-### `formulaires`
-Le constructeur de formulaires dynamiques.
-- **Modèles** : 
-  - `Formulaire` : Entête du document.
-  - `ChampFormulaire` : Entité dynamique (Texte, Liste déroulante, Fichier). Contient les règles de validation en JSON.
-  - `OptionChamp` : Choix possibles pour les champs de type liste.
-- **Logique** : Configuration des champs via Drag&Drop coté front, avec des types natifs et des métadonnées (taille max, extensions pour les fichiers).
+### application `formulaires`
+Le moteur de formulaires dynamiques paramétrables.
+- **Modèles** :
+  - `Formulaire` : Entête du formulaire rattaché à une campagne.
+  - `ChampFormulaire` : Champ dynamique (type, ordre, obligatoire, règles JSON).
+  - `OptionChamp` : Choix possibles pour les champs à sélections (listes, radios, cases à cocher).
 
-### `candidatures` *(En cours)*
-Réception des réponses aux formulaires dynamiques.
-- Stockage clé/valeur pour les réponses dynamiques associées aux candidats.
+### application `candidatures`
+Réception, stockage et validation des dossiers de candidature.
+- **Modèles** :
+  - `Candidature` : Dossier unique avec numéro généré `CAND-AAAA-XXXX`.
+  - `ReponseFormulaire` : Valeur saisie pour chaque champ dynamique.
+  - `Document` : Fichiers joints avec validation du type MIME et de la taille maximale.
 
-### `evaluations` *(En cours)*
-- Workflow pour l'équipe pédagogique et les évaluateurs pour noter les candidatures.
+### application `evaluations`
+Suivi du parcours d'évaluation et émargement des candidats.
+- **Modèles** :
+  - `Etape` : Étape de recrutement configurée par cohorte.
+  - `ParticipationEtape` : Statut du candidat à une étape donnée.
+- **Fonctionnalités** :
+  - Génération de QR Code pour chaque candidat.
+  - Endpoint de scan et d'émargement en direct.
 
-## 3. Flux d'Authentification (Sécurité)
-1. Le Frontend envoie l'email/mot de passe au endpoint `/api/auth/connexion/`.
-2. Le Backend génère un **Access Token (JWT)**. Le token contient en claims les infos utiles (ID, Nom, Prénom, Rôle) pour éviter des requêtes inutiles.
-3. Toutes les requêtes sensibles du Frontend doivent inclure le header `Authorization: Bearer <token>`.
-4. Le Backend valide le jeton et applique les règles définies dans `permissions.py` (Ex: Seul un Administrateur peut créer une campagne).
+### application `notifications`
+Gestion des alertes système et notifications destinées aux candidats et évaluateurs.
+
+---
+
+## 3. Flux d'Authentification et Sécurité JWT
+
+1. **Connexion** : Requête POST vers `/api/auth/connexion/` avec `username` (email) et `password`.
+2. **Jeton JWT** : Le serveur émet un `access` token (durée 60 min) et un `refresh` token.
+3. **Transmission** : Le client transmet le jeton dans le header HTTP `Authorization: Bearer <access_token>`.
+4. **Activation de Compte** : Les comptes du personnel sont créés en état inactif (`is_active=False`). Un email contient un lien unique `/auth/activer/<token>` valide 48h.
+
+---
 
 ## 4. Documentation des APIs
-Toutes les routes API sont auto-documentées avec Swagger.
+
+Le backend intègre `drf-spectacular` pour générer automatiquement la spécification OpenAPI v3 :
 - **Swagger UI** : `http://127.0.0.1:8000/api/docs/swagger/`
 - **ReDoc** : `http://127.0.0.1:8000/api/docs/redoc/`
+- **Schéma OpenAPI JSON** : `http://127.0.0.1:8000/api/schema/`
