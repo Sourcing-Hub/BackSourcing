@@ -273,13 +273,15 @@ class ConfirmationReinitMotDePasseSerializer(serializers.Serializer):
 
 class ListeUtilisateursSerializer(serializers.ModelSerializer):
     role_nom = serializers.SerializerMethodField()
+    prenom = serializers.CharField(source='first_name', read_only=True)
+    nom = serializers.CharField(source='last_name', read_only=True)
 
     class Meta:
         model = Utilisateur
         fields = [
-            'id', 'email', 'first_name', 'last_name',
+            'id', 'email', 'first_name', 'last_name', 'prenom', 'nom',
             'telephone', 'statut', 'compteActive', 'profilComplet',
-            'role_nom', 'dateCreation',
+            'role_nom', 'dateCreation', 'is_active',
         ]
 
     def get_role_nom(self, obj):
