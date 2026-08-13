@@ -29,7 +29,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 
-from utilisateurs.permissions import EstAdministrateur, EstAdminOuPedagogie, EstPersonnel
+from utilisateurs.permissions import EstAdministrateur, EstAdminOuPedagogie, EstPersonnel, EstAdminOuGestionProjet
 from .models import Formation, Cohorte, Campagne
 from .serializers import (
     FormationSerializer,
@@ -51,7 +51,7 @@ class FormationListeView(APIView):
         return Response(FormationSerializer(qs, many=True).data)
 
     def post(self, request):
-        if not request.user.est_admin():
+        if not (request.user.est_admin() or request.user.est_equipe_gestion_projet()):
             return Response({"detail": "Réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
         s = FormationSerializer(data=request.data)
         if s.is_valid():
@@ -76,7 +76,7 @@ class FormationDetailView(APIView):
         return Response(FormationSerializer(obj).data)
 
     def put(self, request, pk):
-        if not request.user.est_admin():
+        if not (request.user.est_admin() or request.user.est_equipe_gestion_projet()):
             return Response({"detail": "Réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
         obj = self._get_object(pk)
         if not obj:
@@ -88,7 +88,7 @@ class FormationDetailView(APIView):
         return Response(s.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):
-        if not request.user.est_admin():
+        if not (request.user.est_admin() or request.user.est_equipe_gestion_projet()):
             return Response({"detail": "Réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
         obj = self._get_object(pk)
         if not obj:
@@ -112,7 +112,7 @@ class CohorteListeView(APIView):
         return Response(CohorteSerializer(qs, many=True).data)
 
     def post(self, request):
-        if not request.user.est_admin():
+        if not (request.user.est_admin() or request.user.est_equipe_gestion_projet()):
             return Response({"detail": "Réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
         s = CohorteSerializer(data=request.data)
         if s.is_valid():
@@ -137,7 +137,7 @@ class CohorteDetailView(APIView):
         return Response(CohorteSerializer(obj).data)
 
     def put(self, request, pk):
-        if not request.user.est_admin():
+        if not (request.user.est_admin() or request.user.est_equipe_gestion_projet()):
             return Response({"detail": "Réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
         obj = self._get_object(pk)
         if not obj:
@@ -149,7 +149,7 @@ class CohorteDetailView(APIView):
         return Response(s.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):
-        if not request.user.est_admin():
+        if not (request.user.est_admin() or request.user.est_equipe_gestion_projet()):
             return Response({"detail": "Réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
         obj = self._get_object(pk)
         if not obj:
@@ -176,7 +176,7 @@ class CampagneListeView(APIView):
         return Response(CampagneListeSerializer(qs, many=True).data)
 
     def post(self, request):
-        if not request.user.est_admin():
+        if not (request.user.est_admin() or request.user.est_equipe_gestion_projet()):
             return Response({"detail": "Réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
         s = CampagneDetailSerializer(data=request.data, context={'request': request})
         if s.is_valid():
@@ -201,7 +201,7 @@ class CampagneDetailView(APIView):
         return Response(CampagneDetailSerializer(obj).data)
 
     def put(self, request, pk):
-        if not request.user.est_admin():
+        if not (request.user.est_admin() or request.user.est_equipe_gestion_projet()):
             return Response({"detail": "Réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
         obj = self._get_object(pk)
         if not obj:
@@ -213,7 +213,7 @@ class CampagneDetailView(APIView):
         return Response(s.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):
-        if not request.user.est_admin():
+        if not (request.user.est_admin() or request.user.est_equipe_gestion_projet()):
             return Response({"detail": "Réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
         obj = self._get_object(pk)
         if not obj:
@@ -223,7 +223,7 @@ class CampagneDetailView(APIView):
 
 
 class CampagneOuvrirView(APIView):
-    permission_classes = [EstAdministrateur]
+    permission_classes = [EstAdminOuGestionProjet]
 
     def post(self, request, pk):
         try:
@@ -247,7 +247,7 @@ class CampagneOuvrirView(APIView):
 
 
 class CampagneFermerView(APIView):
-    permission_classes = [EstAdministrateur]
+    permission_classes = [EstAdminOuGestionProjet]
 
     def post(self, request, pk):
         try:

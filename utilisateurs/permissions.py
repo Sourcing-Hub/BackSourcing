@@ -67,13 +67,17 @@ class EstCandidat(BasePermission):
 
 
 class EstAdminOuPedagogie(BasePermission):
-    """Autorise les administrateurs OU l'équipe pédagogique."""
-    message = "Accès réservé aux administrateurs et à l'équipe pédagogique."
+    """Autorise les administrateurs, l'équipe pédagogique ou l'équipe de gestion de projet."""
+    message = "Accès réservé aux administrateurs, à l'équipe pédagogique et à l'équipe de gestion de projet."
 
     def has_permission(self, request, view):
         if not (request.user and request.user.is_authenticated):
             return False
-        return request.user.est_admin() or request.user.est_equipe_pedagogique()
+        return (
+            request.user.est_admin()
+            or request.user.est_equipe_pedagogique()
+            or request.user.est_equipe_gestion_projet()
+        )
 
 
 class EstPersonnel(BasePermission):
@@ -84,3 +88,13 @@ class EstPersonnel(BasePermission):
         if not (request.user and request.user.is_authenticated):
             return False
         return not request.user.est_candidat()
+
+
+class EstAdminOuGestionProjet(BasePermission):
+    """Autorise les administrateurs OU l'équipe de gestion de projet."""
+    message = "Accès réservé aux administrateurs et à l'équipe de gestion de projet."
+
+    def has_permission(self, request, view):
+        if not (request.user and request.user.is_authenticated):
+            return False
+        return request.user.est_admin() or request.user.est_equipe_gestion_projet()
