@@ -56,8 +56,15 @@ class Role(models.Model):
 
 
 # ─────────────────────────────────────────────
-# Modèle Utilisateur (Custom User Model)
+# Custom QuerySet / Helper Methods
 # ─────────────────────────────────────────────
+
+class UtilisateurManager(models.Manager):
+    """Manager personnalisé pour filtrer les utilisateurs actifs et par rôle."""
+    def actifs(self):
+        return self.filter(is_active=True, compteActive=True)
+
+
 
 class Utilisateur(AbstractUser):
     """
