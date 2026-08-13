@@ -12,6 +12,7 @@ from .views import (
     CreationPersonnelView,
     CreationEvaluateurView,
     ListeUtilisateursView,
+    UtilisateurQrCodeView,
 )
 
 urlpatterns = [
@@ -29,4 +30,5 @@ urlpatterns = [
     path('utilisateurs/changer-mdp/', ChangementMotDePasseView.as_view(), name='utilisateurs-changer-mdp'),
     path('utilisateurs/creer-personnel/', CreationPersonnelView.as_view(), name='utilisateurs-creer-personnel'),
     path('utilisateurs/creer-evaluateur/', CreationEvaluateurView.as_view(), name='utilisateurs-creer-evaluateur'),
+    path('utilisateurs/<uuid:pk>/qr-code/', UtilisateurQrCodeView.as_view(), name='utilisateur-qr-code'),
 ]

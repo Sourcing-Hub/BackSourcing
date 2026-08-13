@@ -274,3 +274,42 @@ class ListeUtilisateursView(APIView):
 
         serializer = ListeUtilisateursSerializer(qs, many=True)
         return Response(serializer.data)
+
+
+class UtilisateurQrCodeView(APIView):
+    """
+    GET /api/utilisateurs/<uuid:pk>/qr-code/
+    Génère dynamiquement un code QR d'identification pour l'utilisateur.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        user = request.user
+        # Seul l'utilisateur lui-même ou les membres de l'équipe (admin/pedagogy/project) peuvent voir le code QR
+        if not (user.id == pk or user.est_admin() or user.est_equipe_pedagogique() or user.est_equipe_gestion_projet()):
+            return Response({"detail": "Non autorisé."}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            target_user = Utilisateur.objects.get(pk=pk)
+        except Utilisateur.DoesNotExist:
+            return Response({"detail": "Utilisateur introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+        import qrcode
+        import io
+        from django.http import HttpResponse
+        from django.conf import settings
+
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
+        qr_data = f"{frontend_url}/scan-candidat/{target_user.id}"
+
+        qr = qrcode.QRCode(version=1, box_size=10, border=5)
+        qr.add_data(qr_data)
+        qr.make(fit=True)
+
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        buffer = io.BytesIO()
+        img.save(buffer, format="PNG")
+        buffer.seek(0)
+        
+        return HttpResponse(buffer.getvalue(), content_type="image/png")
