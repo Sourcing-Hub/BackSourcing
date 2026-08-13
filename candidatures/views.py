@@ -315,7 +315,17 @@ class CandidatureListeView(APIView):
                     Q(utilisateur__email__icontains=search)
                 )
                 
-            return Response(CandidatureListSerializer(qs, many=True).data)
+            serializer_data = CandidatureListSerializer(qs, many=True).data
+            
+            # Filtre par etape actuelle
+            etape_nom = request.query_params.get('etape_nom')
+            if etape_nom:
+                serializer_data = [
+                    d for d in serializer_data 
+                    if d.get('etape_actuelle', {}).get('nom') == etape_nom
+                ]
+                
+            return Response(serializer_data)
             
         else:
             return Response({"detail": "Accès interdit."}, status=status.HTTP_403_FORBIDDEN)

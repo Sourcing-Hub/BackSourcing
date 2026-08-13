@@ -28,12 +28,20 @@ class FormationSerializer(serializers.ModelSerializer):
 # Cohorte
 # ─────────────────────────────────────────────
 
+from evaluations.models import Etape
+
+class EtapeInlineSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Etape
+        fields = ['id', 'nom', 'ordre']
+
 class CohorteSerializer(serializers.ModelSerializer):
     formation_nom = serializers.SerializerMethodField()
+    etapes = EtapeInlineSerializer(many=True, read_only=True)
 
     class Meta:
         model = Cohorte
-        fields = ['id', 'nom', 'dateDebut', 'dateFin', 'formation', 'formation_nom']
+        fields = ['id', 'nom', 'dateDebut', 'dateFin', 'formation', 'formation_nom', 'etapes']
 
     def get_formation_nom(self, obj):
         return obj.formation.nom if obj.formation else None
