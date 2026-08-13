@@ -1,5 +1,5 @@
 """
-Vues pour la gestion des Formulaires dynamiques.
+Vues (API & schémas OpenAPI) pour la gestion des Formulaires dynamiques et des champs associés.
 
 Endpoints :
   Formulaires :
