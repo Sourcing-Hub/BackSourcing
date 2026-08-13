@@ -17,6 +17,7 @@ class StatutCampagne(models.TextChoices):
 # ─────────────────────────────────────────────
 
 class Formation(models.Model):
+    """Représente un programme de formation proposé sur la plateforme."""
     id          = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     nom         = models.CharField(max_length=255, unique=True)
     description = models.TextField(blank=True, null=True)
