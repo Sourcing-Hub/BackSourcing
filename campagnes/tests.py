@@ -1,3 +1,7 @@
 from django.test import TestCase
 
-# Create your tests here.
+# Tests d'intégration pour l'application campagnes
+class CampagneTestCase(TestCase):
+    def setUp(self):
+        pass
+
