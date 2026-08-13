@@ -14,6 +14,7 @@ from utilisateurs.emails import envoyer_email_activation_candidat
 from .serializers import CandidatureDetailSerializer, CandidatureListSerializer
 
 class CandidatureSoumissionView(APIView):
+    """Endpoint public pour la soumission anonyme ou authentifiée d'une candidature."""
     permission_classes = [AllowAny]
 
     @transaction.atomic
