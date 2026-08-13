@@ -60,6 +60,10 @@ class Role(models.Model):
 # ─────────────────────────────────────────────
 
 class Utilisateur(AbstractUser):
+    """
+    Modèle utilisateur personnalisé (Custom User Model) étendant AbstractUser.
+    Gère les rôles, statuts d'activation et métadonnées de profil.
+    """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     # Champs personnels
