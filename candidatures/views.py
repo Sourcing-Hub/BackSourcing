@@ -331,6 +331,7 @@ class CandidatureListeView(APIView):
 
 
 class CandidatureDetailView(APIView):
+    """Vue détaillée d'une candidature avec contrôle de propriété strict."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
