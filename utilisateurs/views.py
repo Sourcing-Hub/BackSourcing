@@ -295,6 +295,7 @@ class UtilisateurQrCodeView(APIView):
             return Response({"detail": "Utilisateur introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
         import qrcode
+        from qrcode.image.pil import PilImage
         import io
         from django.http import HttpResponse
         from django.conf import settings
@@ -306,7 +307,7 @@ class UtilisateurQrCodeView(APIView):
         qr.add_data(qr_data)
         qr.make(fit=True)
 
-        img = qr.make_image(fill_color="black", back_color="white")
+        img = qr.make_image(image_factory=PilImage, fill_color="black", back_color="white")
         
         buffer = io.BytesIO()
         img.save(buffer, format="PNG")
