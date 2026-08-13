@@ -52,6 +52,7 @@ from .emails import (
 class ConnexionView(TokenObtainPairView):
     """
     POST /api/auth/connexion/
+    Authentification utilisateur et émission des jetons JWT.
     Corps : { "username": "email@example.com", "password": "****" }
     Retourne : { access, refresh, role, profilComplet }
     """
