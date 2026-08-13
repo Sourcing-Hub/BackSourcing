@@ -230,7 +230,19 @@ class CampagneOuvrirView(APIView):
             campagne = Campagne.objects.get(pk=pk)
         except Campagne.DoesNotExist:
             return Response({"detail": "Campagne introuvable."}, status=status.HTTP_404_NOT_FOUND)
-        campagne.ouvrir()
+        
+        from django.core.exceptions import ValidationError
+        try:
+            campagne.ouvrir()
+        except ValidationError as e:
+            msg = e.message if hasattr(e, 'message') else str(e)
+            # Remove list styling from django error if raised as list
+            if isinstance(msg, list):
+                msg = ", ".join(msg)
+            elif hasattr(e, 'message_dict') and e.message_dict:
+                msg = ", ".join([f"{k}: {', '.join(v)}" for k, v in e.message_dict.items()])
+            return Response({"detail": msg}, status=status.HTTP_400_BAD_REQUEST)
+
         return Response({"detail": f"La campagne « {campagne.nom} » est maintenant ouverte."})
 
 
