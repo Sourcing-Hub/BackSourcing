@@ -86,6 +86,7 @@ class DeconnexionView(APIView):
 class ActivationCompteView(APIView):
     """
     POST /api/auth/activer/
+    Activation du compte utilisateur via lien sécurisé et définition du mot de passe.
     Corps : { "token": "<uuid>", "mot_de_passe": "***", "mot_de_passe_confirmation": "***" }
     Active le compte du personnel ou de l'évaluateur invité.
     """
