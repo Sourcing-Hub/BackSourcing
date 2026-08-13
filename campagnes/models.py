@@ -107,6 +107,17 @@ class Campagne(models.Model):
         return self.statut == StatutCampagne.OUVERTE and self.dateOuverture <= now <= self.dateCloture
 
     def ouvrir(self):
+        has_form = False
+        try:
+            if hasattr(self, 'formulaire') and self.formulaire:
+                has_form = True
+        except Exception:
+            pass
+
+        if not has_form:
+            from django.core.exceptions import ValidationError
+            raise ValidationError("Impossible d'ouvrir cette campagne car aucun formulaire ne lui est associé.")
+
         self.statut  = StatutCampagne.OUVERTE
         self.publiee = True
         self.save(update_fields=['statut', 'publiee', 'dateModification'])
