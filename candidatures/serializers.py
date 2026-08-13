@@ -14,6 +14,7 @@ class CampagneSerializer(serializers.ModelSerializer):
         fields = ['id', 'nom', 'description']
 
 class DocumentSerializer(serializers.ModelSerializer):
+    """Sérialiseur pour les fichiers joints aux candidatures."""
     class Meta:
         model = Document
         fields = ['id', 'nom', 'chemin', 'typeMime', 'taille', 'dateDepot']
