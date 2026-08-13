@@ -53,6 +53,14 @@ class Cohorte(models.Model):
     def __str__(self):
         return f"{self.nom} — {self.formation.nom}"
 
+    @property
+    def est_active(self) -> bool:
+        """Vérifie si la cohorte est actuellement en cours selon les dates."""
+        today = timezone.now().date()
+        if self.dateDebut and self.dateFin:
+            return self.dateDebut <= today <= self.dateFin
+        return True
+
 
 # ─────────────────────────────────────────────
 # Campagne
