@@ -115,7 +115,50 @@ class FormulaireDetailSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         request = self.context.get('request')
         validated_data['creePar'] = request.user if request else None
-        return super().create(validated_data)
+        formulaire = super().create(validated_data)
+        
+        # Create default fields: Prénom, Nom, Adresse Email, Téléphone, Genre
+        from .models import ChampFormulaire, OptionChamp, TypeChamp
+        
+        ChampFormulaire.objects.create(
+            formulaire=formulaire,
+            libelle="Prénom",
+            type=TypeChamp.TEXTE,
+            obligatoire=True,
+            ordre=0
+        )
+        ChampFormulaire.objects.create(
+            formulaire=formulaire,
+            libelle="Nom",
+            type=TypeChamp.TEXTE,
+            obligatoire=True,
+            ordre=1
+        )
+        ChampFormulaire.objects.create(
+            formulaire=formulaire,
+            libelle="Adresse Email",
+            type=TypeChamp.EMAIL,
+            obligatoire=True,
+            ordre=2
+        )
+        ChampFormulaire.objects.create(
+            formulaire=formulaire,
+            libelle="Téléphone",
+            type=TypeChamp.TELEPHONE,
+            obligatoire=True,
+            ordre=3
+        )
+        genre = ChampFormulaire.objects.create(
+            formulaire=formulaire,
+            libelle="Genre",
+            type=TypeChamp.LISTE_DEROULANTE,
+            obligatoire=True,
+            ordre=4
+        )
+        OptionChamp.objects.create(champ=genre, libelle="Homme", valeur="HOMME", ordre=0)
+        OptionChamp.objects.create(champ=genre, libelle="Femme", valeur="FEMME", ordre=1)
+        
+        return formulaire
 
 
 # ─────────────────────────────────────────────

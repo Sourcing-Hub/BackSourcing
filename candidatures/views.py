@@ -47,6 +47,39 @@ class CandidatureSoumissionView(APIView):
             telephone = data.get('telephone')
             sexe = data.get('sexe')
 
+            # Extraction dynamique depuis les réponses
+            if not (email and prenom and nom and telephone and sexe):
+                reponses_str = data.get('reponses', '[]')
+                try:
+                    reponses = json.loads(reponses_str)
+                except Exception:
+                    reponses = reponses_str if isinstance(reponses_str, list) else []
+
+                from formulaires.models import ChampFormulaire
+                for rep in reponses:
+                    champ_id = rep.get('champ_id')
+                    valeur = str(rep.get('valeur', '')).strip()
+                    if not valeur:
+                        continue
+                    try:
+                        champ = ChampFormulaire.objects.get(id=champ_id, formulaire__campagne=campagne)
+                        libelle_lower = champ.libelle.lower()
+                        if 'email' in libelle_lower or champ.type == 'EMAIL':
+                            email = email or valeur
+                        elif 'prénom' in libelle_lower:
+                            prenom = prenom or valeur
+                        elif 'nom' in libelle_lower:
+                            nom = nom or valeur
+                        elif 'téléphone' in libelle_lower or champ.type == 'TELEPHONE':
+                            telephone = telephone or valeur
+                        elif 'genre' in libelle_lower:
+                            if 'femme' in valeur.lower() or valeur.upper() == 'FEMME':
+                                sexe = sexe or 'FEMME'
+                            else:
+                                sexe = sexe or 'HOMME'
+                    except ChampFormulaire.DoesNotExist:
+                        continue
+
             if not email or not prenom or not nom or not telephone or not sexe:
                 return Response({"detail": "Tous les champs du profil candidat sont obligatoires (email, prenom, nom, telephone, sexe)."}, status=status.HTTP_400_BAD_REQUEST)
 
