@@ -273,18 +273,33 @@ class CandidatureListeView(APIView):
         
         if user.est_candidat():
             # Retourne uniquement ses candidatures
-            qs = Candidature.objects.filter(utilisateur=user).select_related('campagne__cohorte__formation', 'utilisateur')
+            qs = Candidature.objects.filter(utilisateur=user).select_related('campagne__cohorte__formation', 'utilisateur').prefetch_related('participations__etape')
             return Response(CandidatureListSerializer(qs, many=True).data)
             
         elif user.est_admin() or user.est_equipe_pedagogique() or user.est_equipe_gestion_projet():
             # Retourne toutes les candidatures avec filtres
-            qs = Candidature.objects.select_related('campagne__cohorte__formation', 'utilisateur').all()
+            qs = Candidature.objects.select_related('campagne__cohorte__formation', 'utilisateur').prefetch_related('participations__etape').all()
             
             # Filtre campagne
             campagne_id = request.query_params.get('campagne')
             if campagne_id:
                 qs = qs.filter(campagne_id=campagne_id)
                 
+            # Filtre formation
+            formation_id = request.query_params.get('formation')
+            if formation_id:
+                qs = qs.filter(campagne__cohorte__formation_id=formation_id)
+                
+            # Filtre promotion (cohorte)
+            cohorte_id = request.query_params.get('promotion')
+            if cohorte_id:
+                qs = qs.filter(campagne__cohorte_id=cohorte_id)
+                
+            # Filtre annee
+            annee = request.query_params.get('annee')
+            if annee:
+                qs = qs.filter(dateSoumission__year=annee)
+
             # Filtre statut
             statut = request.query_params.get('statut')
             if statut:
