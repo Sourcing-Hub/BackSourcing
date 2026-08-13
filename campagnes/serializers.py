@@ -14,6 +14,15 @@ class FormationSerializer(serializers.ModelSerializer):
         model = Formation
         fields = ['id', 'nom', 'description', 'dateDebut', 'dateFin']
 
+    def validate(self, data):
+        debut = data.get('dateDebut')
+        fin   = data.get('dateFin')
+        if debut and fin and debut >= fin:
+            raise serializers.ValidationError(
+                {"dateFin": "La date de fin doit être postérieure à la date de début."}
+            )
+        return data
+
 
 # ─────────────────────────────────────────────
 # Cohorte
@@ -28,6 +37,15 @@ class CohorteSerializer(serializers.ModelSerializer):
 
     def get_formation_nom(self, obj):
         return obj.formation.nom if obj.formation else None
+
+    def validate(self, data):
+        debut = data.get('dateDebut')
+        fin   = data.get('dateFin')
+        if debut and fin and debut >= fin:
+            raise serializers.ValidationError(
+                {"dateFin": "La date de fin doit être postérieure à la date de début."}
+            )
+        return data
 
 
 # ─────────────────────────────────────────────
