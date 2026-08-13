@@ -95,12 +95,13 @@ class FormulaireDetailSerializer(serializers.ModelSerializer):
     champs                 = ChampFormulaireSerializer(many=True, read_only=True)
     campagne_nom           = serializers.SerializerMethodField()
     campagne_est_ouverte   = serializers.SerializerMethodField()
+    campagne_statut        = serializers.SerializerMethodField()
 
     class Meta:
         model = Formulaire
         fields = [
             'id', 'titre', 'description', 'publie',
-            'campagne', 'campagne_nom', 'campagne_est_ouverte',
+            'campagne', 'campagne_nom', 'campagne_est_ouverte', 'campagne_statut',
             'champs',
             'dateCreation', 'dateModification',
         ]
@@ -111,6 +112,9 @@ class FormulaireDetailSerializer(serializers.ModelSerializer):
 
     def get_campagne_est_ouverte(self, obj):
         return obj.campagne.est_ouverte() if obj.campagne else True
+
+    def get_campagne_statut(self, obj):
+        return obj.campagne.statut if obj.campagne else None
 
     def create(self, validated_data):
         request = self.context.get('request')
