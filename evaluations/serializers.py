@@ -2,6 +2,7 @@ from rest_framework import serializers
 from .models import Etape, ParticipationEtape
 
 class EtapeSerializer(serializers.ModelSerializer):
+    """Sérialiseur pour la consultation des étapes d'évaluation."""
     class Meta:
         model = Etape
         fields = ['id', 'nom', 'ordre']
