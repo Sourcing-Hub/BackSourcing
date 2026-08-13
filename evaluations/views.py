@@ -11,6 +11,7 @@ from .models import Etape, ParticipationEtape, StatutEtape
 from .serializers import ParticipationEtapeSerializer
 
 class IsStaffOrAdmin(IsAuthenticated):
+    """Permission permettant l'accès aux membres Admin, Pédagogie et Gestion de Projet."""
     def has_permission(self, request, view):
         if not super().has_permission(request, view):
             return False
