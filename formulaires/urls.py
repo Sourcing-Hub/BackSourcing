@@ -6,9 +6,13 @@ from .views import (
     FormulairePrevisualisationView,
     ChampListeView, ChampDetailView,
     OptionListeView, OptionDetailView,
+    FormulairePubliqueCampagneView,
 )
 
 urlpatterns = [
+    # Formulaires publiques
+    path('publique/campagne/<uuid:campagne_id>/', FormulairePubliqueCampagneView.as_view(), name='formulaires-publique-campagne'),
+
     # Formulaires
     path('', FormulaireListeView.as_view(), name='formulaires-liste'),
     path('<uuid:pk>/', FormulaireDetailView.as_view(), name='formulaires-detail'),
