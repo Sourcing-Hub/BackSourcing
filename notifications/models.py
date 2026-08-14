@@ -8,6 +8,7 @@ class TypeNotification(models.TextChoices):
     RESULTAT = 'RESULTAT', 'Résultat'
     FIN_PARCOURS = 'FIN_PARCOURS', 'Fin de parcours'
     ADMISSION = 'ADMISSION', 'Admission'
+    CONFIRMATION = 'CONFIRMATION', 'Confirmation de présence'
 
 class StatutNotification(models.TextChoices):
     EN_ATTENTE = 'EN_ATTENTE', 'En attente'

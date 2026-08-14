@@ -55,6 +55,16 @@ class CohorteSerializer(serializers.ModelSerializer):
             )
         return data
 
+    def create(self, validated_data):
+        """Initialise le parcours de sélection dès la création d'une cohorte."""
+        cohorte = super().create(validated_data)
+        Etape.objects.bulk_create([
+            Etape(cohorte=cohorte, nom="Réunion d'information", ordre=1),
+            Etape(cohorte=cohorte, nom='Entretien technique et motivation', ordre=2),
+            Etape(cohorte=cohorte, nom='Entretien final', ordre=3),
+        ])
+        return cohorte
+
 
 # ─────────────────────────────────────────────
 # Campagne
