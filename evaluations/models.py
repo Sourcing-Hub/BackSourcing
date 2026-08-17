@@ -10,6 +10,12 @@ class StatutEtape(models.TextChoices):
     ABSENT = 'ABSENT', 'Absent'
     ANNULEE = 'ANNULEE', 'Annulée'
 
+
+class StatutPresence(models.TextChoices):
+    A_ATTENDRE = 'A_ATTENDRE', 'En attente de pointage'
+    PRESENT = 'PRESENT', 'Présent'
+    ABSENT = 'ABSENT', 'Absent'
+
 class TypeDecision(models.TextChoices):
     ADMISSION = 'ADMISSION', 'Admission'
     NON_ADMISSION = 'NON_ADMISSION', 'Non admission'
@@ -62,16 +68,30 @@ class Session(models.Model):
 class AffectationCandidat(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     dateAffectation = models.DateTimeField(auto_now_add=True)
+    statutPresence = models.CharField(max_length=20, choices=StatutPresence.choices, default=StatutPresence.A_ATTENDRE)
+    dateEmargement = models.DateTimeField(blank=True, null=True)
+    tokenConfirmation = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    dateConfirmation = models.DateTimeField(blank=True, null=True)
     
     participation_etape = models.OneToOneField(ParticipationEtape, on_delete=models.CASCADE, related_name='affectation_session')
     session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name='affectations_candidats')
 
 class AffectationEvaluateur(models.Model):
+    class RoleEncadrement(models.TextChoices):
+        TECHNIQUE = 'TECHNIQUE', 'Coach technique'
+        MOTIVATION = 'MOTIVATION', 'Coach motivation'
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     dateAffectation = models.DateTimeField(auto_now_add=True)
+    roleEncadrement = models.CharField(max_length=20, choices=RoleEncadrement.choices, default=RoleEncadrement.TECHNIQUE)
 
     evaluateur = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='affectations_sessions')
     session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name='affectations_evaluateurs')
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['evaluateur', 'session', 'roleEncadrement'], name='affectation_evaluateur_role_unique'),
+        ]
 
 class Question(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
