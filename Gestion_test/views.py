@@ -113,3 +113,11 @@ class TestViewSet(viewsets.ModelViewSet):
         return response
 
 
+
+class SoumissionTestViewSet(viewsets.ModelViewSet):
+      queryset = SoumissionTest.objects.all().order_by('-date_soumission')
+      serializer_class = SoumissionTestSerializer
+    
+    # INDISPENSABLE pour l'upload de fichiers : 
+    # Ces parsers indiquent à Django qu'il doit accepter les données de type "multipart/form-data" (fichiers + texte)
+      parser_classes = (MultiPartParser, FormParser)     
