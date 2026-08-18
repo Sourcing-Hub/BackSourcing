@@ -60,3 +60,56 @@ class TestViewSet(viewsets.ModelViewSet):
         }, status=status.HTTP_200_OK)
 
 
+
+    @action(detail=True, methods=['get'])
+    def telecharger_pdf(self, request, pk=None):
+        """
+        Gendère et télécharge un PDF contenant les détails du test.
+        URL générée par DRF : /api/tests/<pk>/telecharger_pdf/
+        """
+        test = self.get_object()
+
+        # 1. Création d'un buffer mémoire pour stocker le PDF temporairement
+        buffer = io.BytesIO()
+
+        # 2. Configuration du document PDF avec ReportLab
+        p = canvas.Canvas(buffer, pagesize=letter)
+        width, height = letter
+
+        # --- Design / Contenu du PDF ---
+        # Titre du test
+        p.setFont("Helvetica-Bold", 18)
+        p.drawString(50, height - 50, f"Fiche du Test : {test.nom}")
+
+        # Description ou informations du test
+        p.setFont("Helvetica", 12)
+        y_position = height - 100
+        
+        p.drawString(50, y_position, f"Statut actuel : {getattr(test, 'statut', 'N/A')}")
+        y_position -= 30
+
+        # Description détaillée si elle existe
+        description = getattr(test, 'description', 'Aucune description disponible pour ce test.')
+        p.drawString(50, y_position, "Description :")
+        y_position -= 20
+        
+        # Petit texte simple pour l'exemple
+        p.drawString(70, y_position, description)
+
+        # Pied de page / Fin du document
+        p.showPage()
+        p.save()
+
+        # 3. Récupération des données du buffer
+        buffer.seek(0)
+        pdf_data = buffer.getvalue()
+        buffer.close()
+
+        # 4. Retourner le fichier PDF sous forme de réponse HTTP téléchargeable
+        response = HttpResponse(pdf_data, content_type='application/pdf')
+        # 'attachment' force le téléchargement du fichier au lieu de l'ouvrir dans l'onglet
+        response['Content-Disposition'] = f'attachment; filename="test_{test.id}.pdf"'
+        
+        return response
+
+
