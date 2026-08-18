@@ -3,7 +3,7 @@ from .views import (
     CandidatScanDetailsView, ParticipationEtapeChangerStatutView,
     PlanningListeView, PlanningDetailView, PlanningConfigurationView, EncadrantsPlanningView,
     ConvocationCandidatsView, ConvocationAffectationView,
-    EmargementSessionsView, EmargementSessionDetailView, EmargementPresenceView,
+    EmargementSessionsView, EmargementSessionDetailView, EmargementPresenceView, EmargementQrView,
     EmargementCloturerView, ConfirmationPresenceView,
 )
 
@@ -19,6 +19,7 @@ urlpatterns = [
     path('emargement/sessions/<uuid:session_id>/', EmargementSessionDetailView.as_view(), name='emargement-session-detail'),
     path('emargement/sessions/<uuid:session_id>/cloturer/', EmargementCloturerView.as_view(), name='emargement-cloturer'),
     path('emargement/affectations/<uuid:affectation_id>/presence/', EmargementPresenceView.as_view(), name='emargement-presence'),
+    path('emargement/qr/<uuid:token>/', EmargementQrView.as_view(), name='emargement-qr'),
     path('confirmation-presence/<uuid:token>/', ConfirmationPresenceView.as_view(), name='confirmation-presence'),
     path('plannings/<uuid:pk>/', PlanningDetailView.as_view(), name='plannings-detail'),
 ]

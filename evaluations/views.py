@@ -6,7 +6,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db import transaction
 from django.conf import settings
-from django.core.mail import send_mail
+from django.core.mail import EmailMessage, send_mail
 
 from utilisateurs.models import Utilisateur, NomRole
 from candidatures.models import Candidature
@@ -326,20 +326,24 @@ class ConvocationAffectationView(APIView):
             return Response({'detail': 'Affectation impossible.', 'erreurs': erreurs}, status=status.HTTP_400_BAD_REQUEST)
 
         for candidature, participation in affectations:
-            AffectationCandidat.objects.create(participation_etape=participation, session=session)
+            affectation = AffectationCandidat.objects.create(participation_etape=participation, session=session)
             participation.statut = StatutEtape.EN_COURS
             participation.save(update_fields=['statut'])
             if candidature.statut == 'EN_ATTENTE':
                 candidature.statut = 'EN_COURS'
                 candidature.save(update_fields=['statut'])
+            transaction.on_commit(
+                lambda candidature=candidature, token=affectation.tokenConfirmation: envoyer_convocation_email(candidature, session, token),
+            )
 
         return Response({
             'affectes': len(affectations),
             'places_restantes': session.capacite - deja_assignes - len(affectations),
+            'emailsProgrammes': len(affectations),
         }, status=status.HTTP_201_CREATED)
 
 
-def envoyer_notification(candidature, notification_type, objet, contenu):
+def envoyer_notification(candidature, notification_type, objet, contenu, attachment=None):
     """Conserve toujours une trace de l'envoi, même si la messagerie est indisponible."""
     notification = Notification.objects.create(
         type=notification_type,
@@ -349,12 +353,43 @@ def envoyer_notification(candidature, notification_type, objet, contenu):
         candidature=candidature,
     )
     try:
-        send_mail(objet, contenu, settings.DEFAULT_FROM_EMAIL, [candidature.utilisateur.email], fail_silently=False)
+        if attachment:
+            email = EmailMessage(objet, contenu, settings.DEFAULT_FROM_EMAIL, [candidature.utilisateur.email])
+            email.attach('qr-convocation.png', attachment, 'image/png')
+            email.send(fail_silently=False)
+        else:
+            send_mail(objet, contenu, settings.DEFAULT_FROM_EMAIL, [candidature.utilisateur.email], fail_silently=False)
         notification.statut = StatutNotification.ENVOYEE
     except Exception:
         notification.statut = StatutNotification.ECHEC
     notification.save(update_fields=['statut'])
     return notification
+
+
+def envoyer_convocation_email(candidature, session, token):
+    utilisateur = candidature.utilisateur
+    etape = session.etape
+    objet = f'Convocation — {etape.nom}'
+    lieu = session.lieu or session.localisation or 'Lieu à préciser'
+    qr_data = f'{settings.FRONTEND_URL}/scan-emargement/{token}'
+    contenu = (
+        f'Bonjour {utilisateur.get_full_name() or utilisateur.email},\n\n'
+        f'Votre candidature {candidature.numero} est convoquée à l étape « {etape.nom} ».\n\n'
+        f'Date : {session.date.strftime("%d/%m/%Y")}\n'
+        f'Horaire : {session.heureDebut.strftime("%H:%M")} – {session.heureFin.strftime("%H:%M")}\n'
+        f'Lieu : {lieu}\n'
+        f'Formation : {etape.cohorte.formation.nom}\n'
+        f'Promotion : {etape.cohorte.nom}\n\n'
+        'Merci de vous présenter quelques minutes avant l heure indiquée.\n\n'
+        f'Votre QR code de pointage est joint à cet email. En cas de besoin, utilisez ce lien : {qr_data}\n\n'
+        'Cordialement,\nL équipe Sourcing Connect'
+    )
+    import io
+    import qrcode
+    qr = qrcode.make(qr_data)
+    buffer = io.BytesIO()
+    qr.save(buffer, format='PNG')
+    return envoyer_notification(candidature, TypeNotification.CONVOCATION, objet, contenu, buffer.getvalue())
 
 
 def serialiser_affectation(affectation):
@@ -424,7 +459,7 @@ class EmargementPresenceView(APIView):
 
     @transaction.atomic
     def patch(self, request, affectation_id):
-        statut_presence = request.data.get('statutPresence')
+        statut_presence = request.data.get('statutPresence') or getattr(request, 'forced_presence', None)
         if statut_presence not in StatutPresence.values:
             return Response({'detail': 'Statut de présence invalide.'}, status=status.HTTP_400_BAD_REQUEST)
         affectation = get_object_or_404(AffectationCandidat.objects.select_for_update().select_related(
@@ -446,6 +481,51 @@ class EmargementPresenceView(APIView):
             if not was_absent:
                 envoyer_notification(candidature, TypeNotification.FIN_PARCOURS, 'Fin de votre parcours de sélection', 'Vous avez été marqué(e) absent(e) à votre session. Votre parcours de sélection est terminé.')
         return Response(serialiser_affectation(affectation))
+
+
+class EmargementQrView(APIView):
+    """Lecture d'un QR de convocation par un membre autorisé."""
+    permission_classes = [EstAdminOuPedagogie]
+
+    def get_permissions(self):
+        # La présentation du QR par le candidat peut être enregistrée sans connexion.
+        if self.request.method in ('GET', 'POST'):
+            return []
+        return super().get_permissions()
+
+    def get(self, request, token):
+        affectation = get_object_or_404(AffectationCandidat.objects.select_related(
+            'session__etape__cohorte__formation',
+            'participation_etape__candidature__utilisateur',
+        ), tokenConfirmation=token)
+        candidature = affectation.participation_etape.candidature
+        return Response({
+            'id': affectation.id,
+            'nom': candidature.utilisateur.get_full_name() or candidature.utilisateur.email,
+            'email': candidature.utilisateur.email,
+            'numero': candidature.numero,
+            'statutPresence': affectation.statutPresence,
+            'session': {
+                'id': affectation.session.id,
+                'etapeNom': affectation.session.etape.nom,
+                'cohorteNom': affectation.session.etape.cohorte.nom,
+                'date': affectation.session.date,
+                'heureDebut': affectation.session.heureDebut,
+                'heureFin': affectation.session.heureFin,
+                'lieu': affectation.session.lieu or affectation.session.localisation,
+            },
+        })
+
+    def patch(self, request, token):
+        affectation = get_object_or_404(AffectationCandidat, tokenConfirmation=token)
+        return EmargementPresenceView().patch(request, affectation.id)
+
+    def post(self, request, token):
+        """Pointage automatique lors de la présentation du QR le jour J."""
+        affectation = get_object_or_404(AffectationCandidat, tokenConfirmation=token)
+        request.forced_presence = StatutPresence.PRESENT
+        EmargementPresenceView().patch(request, affectation.id)
+        return self.get(request, token)
 
 
 class EmargementCloturerView(APIView):

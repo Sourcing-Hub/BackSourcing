@@ -3,12 +3,15 @@ from .views import (
     FormulaireListeView, FormulaireDetailView,
     FormulairePublierView, FormulaireDepublierView,
     FormulaireAssocierCampagneView, FormulaireReorganiserChampsView,
-    FormulairePrevisualisationView,
+    FormulairePrevisualisationView, FormulairePubliqueCampagneView,
     ChampListeView, ChampDetailView,
     OptionListeView, OptionDetailView,
 )
 
 urlpatterns = [
+    # Formulaire public associé à une campagne ouverte
+    path('publique/campagne/<uuid:campagne_id>/', FormulairePubliqueCampagneView.as_view(), name='formulaire-publique-campagne'),
+
     # Formulaires
     path('', FormulaireListeView.as_view(), name='formulaires-liste'),
     path('<uuid:pk>/', FormulaireDetailView.as_view(), name='formulaires-detail'),

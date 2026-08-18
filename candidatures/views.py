@@ -226,7 +226,6 @@ class CandidatureSoumissionView(APIView):
 
             # Validation DATE
             elif champ.type == 'DATE' and valeur:
-                import datetime
                 try:
                     datetime.datetime.strptime(valeur, '%Y-%m-%d')
                 except ValueError:
