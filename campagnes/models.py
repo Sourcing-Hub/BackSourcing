@@ -17,6 +17,7 @@ class StatutCampagne(models.TextChoices):
 # ─────────────────────────────────────────────
 
 class Formation(models.Model):
+    """Représente un programme de formation proposé sur la plateforme."""
     id          = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     nom         = models.CharField(max_length=255, unique=True)
     description = models.TextField(blank=True, null=True)
@@ -38,7 +39,7 @@ class Formation(models.Model):
 
 class Cohorte(models.Model):
     id        = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    nom       = models.CharField(max_length=255, unique=True)
+    nom       = models.CharField(max_length=255)  # Unique par formation (voir unique_together)
     dateDebut = models.DateField(blank=True, null=True)
     dateFin   = models.DateField(blank=True, null=True)
     formation = models.ForeignKey(Formation, on_delete=models.CASCADE, related_name='cohortes')
@@ -47,9 +48,18 @@ class Cohorte(models.Model):
         verbose_name = 'Cohorte'
         verbose_name_plural = 'Cohortes'
         ordering = ['-dateDebut']
+        unique_together = [('nom', 'formation')]  # P1 peut exister pour chaque formation
 
     def __str__(self):
         return f"{self.nom} — {self.formation.nom}"
+
+    @property
+    def est_active(self) -> bool:
+        """Vérifie si la cohorte est actuellement en cours selon les dates."""
+        today = timezone.now().date()
+        if self.dateDebut and self.dateFin:
+            return self.dateDebut <= today <= self.dateFin
+        return True
 
 
 # ─────────────────────────────────────────────

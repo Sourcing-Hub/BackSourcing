@@ -16,6 +16,7 @@ class StatutNotification(models.TextChoices):
     ECHEC = 'ECHEC', 'Échec'
 
 class Notification(models.Model):
+    """Modèle stockant les notifications système envoyées aux utilisateurs."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     type = models.CharField(max_length=20, choices=TypeNotification.choices)
     objet = models.CharField(max_length=255)

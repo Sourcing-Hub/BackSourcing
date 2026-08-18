@@ -178,6 +178,11 @@ class ProfilUtilisateurSerializer(serializers.ModelSerializer):
     def get_role_nom(self, obj):
         return obj.role.nom if obj.role else None
 
+    def validate_telephone(self, value):
+        if value and len(value.strip()) < 8:
+            raise serializers.ValidationError("Le numéro de téléphone doit comporter au moins 8 caractères.")
+        return value
+
     def update(self, instance, validated_data):
         for attr, value in validated_data.items():
             setattr(instance, attr, value)

@@ -12,6 +12,9 @@ from dotenv import load_dotenv
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Délais de validité des jetons d'activation (en heures)
+DELAI_ACTIVATION_TOKEN_HEURES = 48
+
 # Load environment variables from .env file
 load_dotenv(os.path.join(BASE_DIR, '.env'))
 # Force reload

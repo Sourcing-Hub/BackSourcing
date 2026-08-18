@@ -25,6 +25,7 @@ class TypeQuestion(models.TextChoices):
     SOFT_SKILLS_MOTIVATION = 'SOFT_SKILLS_MOTIVATION', 'Soft skills / Motivation'
 
 class Etape(models.Model):
+    """Modèle représentant une étape du processus d'évaluation/recrutement d'une cohorte."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     nom = models.CharField(max_length=255)
     ordre = models.IntegerField()

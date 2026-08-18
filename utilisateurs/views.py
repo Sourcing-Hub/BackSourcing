@@ -52,6 +52,7 @@ from .emails import (
 class ConnexionView(TokenObtainPairView):
     """
     POST /api/auth/connexion/
+    Authentification utilisateur et émission des jetons JWT.
     Corps : { "username": "email@example.com", "password": "****" }
     Retourne : { access, refresh, role, profilComplet }
     """
@@ -85,6 +86,7 @@ class DeconnexionView(APIView):
 class ActivationCompteView(APIView):
     """
     POST /api/auth/activer/
+    Activation du compte utilisateur via lien sécurisé et définition du mot de passe.
     Corps : { "token": "<uuid>", "mot_de_passe": "***", "mot_de_passe_confirmation": "***" }
     Active le compte du personnel ou de l'évaluateur invité.
     """

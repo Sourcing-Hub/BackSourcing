@@ -19,7 +19,7 @@ class EstAdministrateur(BasePermission):
 
 
 class EstEquipePedagogique(BasePermission):
-    """Autorise uniquement l'équipe pédagogique."""
+    """Autorise uniquement les membres de l'équipe pédagogique authentifiés."""
     message = "Accès réservé à l'équipe pédagogique."
 
     def has_permission(self, request, view):

@@ -53,6 +53,6 @@ class Command(BaseCommand):
         self.stdout.write("")
         self.stdout.write(
             self.style.SUCCESS(
-                f"Terminé : {creés} rôle(s) créé(s), {existants} déjà existant(s)."
+                f"Initialisation terminée : {creés} rôle(s) créé(s), {existants} déjà existant(s)."
             )
         )

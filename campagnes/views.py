@@ -1,5 +1,5 @@
 """
-Vues pour la gestion des Campagnes.
+Vues (API Endpoints & OpenAPI schemas) pour la gestion des Campagnes, Formations et Cohortes.
 
 Endpoints :
   Formations :
