@@ -25,5 +25,25 @@ class Test(models.Model):
     
     date_creation = models.DateTimeField(auto_now_add=True, verbose_name="Date de création")
 
+    date_ouverture = models.DateTimeField()
+
+    date_cloture = models.DateTimeField()
+
     def __str__(self):
         return f"{self.nom} ({self.get_statut_display()})"
+
+
+
+class SoumissionTest(models.Model):
+
+    nom_candidat = models.CharField(max_length=100)
+
+    email_candidat = models.EmailField()
+
+    fichier_test = models.FileField(upload_to='soumissions/')
+    
+    # Date et heure de l'upload
+    date_soumission = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Soumission de {self.nom_candidat} - {self.date_soumission.strftime('%d/%m/%Y')}"
