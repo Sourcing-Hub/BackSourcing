@@ -98,12 +98,15 @@ class CreationPersonnelSerializer(serializers.Serializer):
     """
     Utilisé par l'administrateur pour créer un compte Personnel
     (Équipe Pédagogique ou Équipe Gestion de Projet).
-    Seul l'email est obligatoire ; un token d'invitation est envoyé par email.
     """
     email = serializers.EmailField()
+    prenom = serializers.CharField(required=False, allow_blank=True, default='')
+    nom = serializers.CharField(required=False, allow_blank=True, default='')
     role = serializers.ChoiceField(choices=[
         NomRole.EQUIPE_PEDAGOGIQUE,
         NomRole.EQUIPE_GESTION_PROJET,
+        NomRole.EVALUATEUR,
+        NomRole.ADMINISTRATEUR,
     ])
 
     def validate_email(self, valeur):
@@ -120,12 +123,16 @@ class CreationPersonnelSerializer(serializers.Serializer):
     def create(self, validated_data):
         email = validated_data['email']
         role = validated_data['role']
+        first_name = validated_data.get('prenom') or validated_data.get('first_name', '')
+        last_name = validated_data.get('nom') or validated_data.get('last_name', '')
 
         utilisateur = Utilisateur.objects.create(
             email=email,
-            username=email,  # username = email pour simplifier
+            username=email,
+            first_name=first_name,
+            last_name=last_name,
             role=role,
-            is_active=False,  # inactif jusqu'à activation
+            is_active=False,
             compteActive=False,
         )
         utilisateur.generer_token_activation()
@@ -137,6 +144,8 @@ class CreationEvaluateurSerializer(serializers.Serializer):
     Utilisé par l'équipe pédagogique pour créer un compte Évaluateur.
     """
     email = serializers.EmailField()
+    prenom = serializers.CharField(required=False, allow_blank=True, default='')
+    nom = serializers.CharField(required=False, allow_blank=True, default='')
 
     def validate_email(self, valeur):
         if Utilisateur.objects.filter(email=valeur).exists():
@@ -146,10 +155,14 @@ class CreationEvaluateurSerializer(serializers.Serializer):
     def create(self, validated_data):
         email = validated_data['email']
         role = Role.objects.get(nom=NomRole.EVALUATEUR)
+        first_name = validated_data.get('prenom') or validated_data.get('first_name', '')
+        last_name = validated_data.get('nom') or validated_data.get('last_name', '')
 
         utilisateur = Utilisateur.objects.create(
             email=email,
             username=email,
+            first_name=first_name,
+            last_name=last_name,
             role=role,
             is_active=False,
             compteActive=False,

@@ -50,6 +50,7 @@ class PlanningConfigurationSerializer(serializers.Serializer):
     etape = serializers.PrimaryKeyRelatedField(queryset=Etape.objects.all())
     lieu = serializers.CharField(required=False, allow_blank=True, allow_null=True, max_length=255)
     localisation = serializers.CharField(required=False, allow_blank=True, allow_null=True, max_length=255)
+    encadreur = serializers.PrimaryKeyRelatedField(queryset=Utilisateur.objects.all(), required=False, allow_null=True)
     coachTechnique = serializers.PrimaryKeyRelatedField(queryset=Utilisateur.objects.all(), required=False, allow_null=True)
     coachMotivation = serializers.PrimaryKeyRelatedField(queryset=Utilisateur.objects.all(), required=False, allow_null=True)
     jours = serializers.ListField(child=serializers.DictField(), allow_empty=False)
@@ -73,16 +74,16 @@ class PlanningConfigurationSerializer(serializers.Serializer):
         return jours
 
     def validate(self, data):
-        for coach_key in ('coachTechnique', 'coachMotivation'):
-            coach = data.get(coach_key)
-            if coach and not (coach.a_role(NomRole.EVALUATEUR) or coach.est_equipe_pedagogique()):
-                raise serializers.ValidationError({coach_key: 'Le coach doit être un évaluateur ou un membre de l’équipe pédagogique.'})
+        for encadreur_key in ('encadreur', 'coachTechnique', 'coachMotivation'):
+            user = data.get(encadreur_key)
+            if user and (user.est_candidat() or (user.role and user.role.nom == NomRole.CANDIDAT)):
+                raise serializers.ValidationError({encadreur_key: "L'encadreur ne peut pas être un candidat."})
         return data
 
     @transaction.atomic
     def create(self, validated_data):
         jours = validated_data.pop('jours')
-        coach_technique = validated_data.pop('coachTechnique', None)
+        encadreur = validated_data.pop('encadreur', None) or validated_data.pop('coachTechnique', None)
         coach_motivation = validated_data.pop('coachMotivation', None)
         etape = validated_data.pop('etape')
         sessions = []
@@ -92,8 +93,8 @@ class PlanningConfigurationSerializer(serializers.Serializer):
                     etape=etape, date=jour['date'], heureDebut=creneau['heureDebut'],
                     heureFin=creneau['heureFin'], capacite=creneau['capacite'], **validated_data,
                 )
-                if coach_technique:
-                    AffectationEvaluateur.objects.create(evaluateur=coach_technique, session=session, roleEncadrement='TECHNIQUE')
+                if encadreur:
+                    AffectationEvaluateur.objects.create(evaluateur=encadreur, session=session)
                 if coach_motivation:
                     AffectationEvaluateur.objects.create(evaluateur=coach_motivation, session=session, roleEncadrement='MOTIVATION')
                 sessions.append(session)

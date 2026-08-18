@@ -78,8 +78,8 @@ class AffectationCandidat(models.Model):
 
 class AffectationEvaluateur(models.Model):
     class RoleEncadrement(models.TextChoices):
-        TECHNIQUE = 'TECHNIQUE', 'Coach technique'
-        MOTIVATION = 'MOTIVATION', 'Coach motivation'
+        TECHNIQUE = 'TECHNIQUE', 'Encadreur technique'
+        MOTIVATION = 'MOTIVATION', 'Encadreur motivation'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     dateAffectation = models.DateTimeField(auto_now_add=True)
