@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.db import transaction
 from utilisateurs.models import Utilisateur, NomRole
-from .models import AffectationEvaluateur, Etape, ParticipationEtape, Session
+from .models import AffectationEvaluateur, Etape, ParticipationEtape, Question, Session
 
 class EtapeSerializer(serializers.ModelSerializer):
     """Sérialiseur pour la consultation des étapes d'évaluation."""
@@ -99,3 +99,77 @@ class PlanningConfigurationSerializer(serializers.Serializer):
                     AffectationEvaluateur.objects.create(evaluateur=coach_motivation, session=session, roleEncadrement='MOTIVATION')
                 sessions.append(session)
         return sessions
+
+
+class QuestionSerializer(serializers.ModelSerializer):
+    contenu = serializers.CharField(required=False)
+    question = serializers.CharField(source='contenu', required=False)
+    baremeMax = serializers.DecimalField(max_digits=5, decimal_places=2, required=False)
+    maxScore = serializers.DecimalField(source='baremeMax', max_digits=5, decimal_places=2, required=False)
+    cohorte_nom = serializers.CharField(source='cohorte.nom', read_only=True)
+    formation_nom = serializers.CharField(source='cohorte.formation.nom', read_only=True)
+    verrouillee = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Question
+        fields = [
+            'id', 'contenu', 'question', 'type', 'baremeMax', 'maxScore',
+            'ordre', 'cohorte', 'cohorte_nom', 'formation_nom', 'verrouillee',
+        ]
+        read_only_fields = ['id', 'cohorte_nom', 'formation_nom', 'verrouillee']
+
+    def get_verrouillee(self, obj):
+        return obj.evaluations.filter(validee=True).exists()
+
+    def validate(self, data):
+        if 'contenu' not in data and self.initial_data.get('question') is not None:
+            data['contenu'] = self.initial_data.get('question')
+        if 'baremeMax' not in data and self.initial_data.get('maxScore') is not None:
+            data['baremeMax'] = self.initial_data.get('maxScore')
+        if not data.get('contenu'):
+            raise serializers.ValidationError({'question': 'La question est requise.'})
+        if data.get('baremeMax') is None:
+            raise serializers.ValidationError({'maxScore': 'Le barème est requis.'})
+        return data
+
+
+class EvaluatorCandidateSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    firstName = serializers.CharField()
+    lastName = serializers.CharField()
+    email = serializers.EmailField()
+    phone = serializers.CharField(allow_blank=True, allow_null=True)
+    formation = serializers.CharField(allow_blank=True)
+    promotion = serializers.CharField(allow_blank=True)
+    candidatureId = serializers.UUIDField()
+    numero = serializers.CharField()
+    statut = serializers.CharField()
+
+
+class EvaluatorInterviewSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    candidateId = serializers.UUIDField()
+    candidateName = serializers.CharField()
+    type = serializers.CharField()
+    typeLabel = serializers.CharField()
+    date = serializers.DateField()
+    startTime = serializers.TimeField()
+    endTime = serializers.TimeField()
+    location = serializers.CharField(allow_blank=True, allow_null=True)
+    status = serializers.CharField()
+    statusLabel = serializers.CharField()
+    participationId = serializers.UUIDField()
+    candidatureId = serializers.UUIDField()
+    sessionId = serializers.UUIDField()
+
+
+class EvaluatorEvaluationSerializer(serializers.Serializer):
+    type = serializers.CharField()
+    questions = serializers.ListField(read_only=True)
+    answers = serializers.DictField(child=serializers.CharField(allow_blank=True), required=False)
+    notes = serializers.DictField(required=False)
+    score = serializers.FloatField(required=False, allow_null=True)
+    averageScore = serializers.FloatField(required=False, allow_null=True)
+    comment = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    status = serializers.CharField(read_only=True)
+    validated = serializers.BooleanField(read_only=True)

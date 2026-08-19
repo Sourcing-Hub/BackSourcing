@@ -1,6 +1,7 @@
 import uuid
 from django.db import models
 from django.conf import settings
+from django.core.exceptions import ValidationError
 
 class StatutEtape(models.TextChoices):
     EN_ATTENTE = 'EN_ATTENTE', 'En attente'
@@ -105,9 +106,26 @@ class Question(models.Model):
     class Meta:
         ordering = ['ordre']
 
+    def _has_validated_answers(self):
+        return self.evaluations.filter(validee=True).exists() # pyright: ignore[reportAttributeAccessIssue]
+
+    def save(self, *args, **kwargs):
+        if self.pk and self._has_validated_answers():
+            ancienne = Question.objects.get(pk=self.pk)
+            champs_verrouilles = ('contenu', 'type', 'baremeMax', 'cohorte_id')
+            if any(getattr(ancienne, champ) != getattr(self, champ) for champ in champs_verrouilles):
+                raise ValidationError("Cette question ne peut plus être modifiée car elle possède des réponses validées.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self._has_validated_answers():
+            raise ValidationError("Cette question ne peut plus être supprimée car elle possède des réponses validées.")
+        return super().delete(*args, **kwargs)
+
 class Evaluation(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     note = models.DecimalField(max_digits=5, decimal_places=2)
+    reponse = models.TextField(blank=True, null=True)
     commentaire = models.TextField(blank=True, null=True)
     dateEvaluation = models.DateTimeField(auto_now_add=True)
     validee = models.BooleanField(default=False)
@@ -115,6 +133,21 @@ class Evaluation(models.Model):
     evaluateur = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='evaluations_donnees')
     participation = models.ForeignKey(ParticipationEtape, on_delete=models.CASCADE, related_name='evaluations')
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='evaluations')
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['participation', 'question'], name='evaluation_unique_par_question_candidat'),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk and Evaluation.objects.filter(pk=self.pk, validee=True).exists():
+            raise ValidationError("Cette réponse est validée et ne peut plus être modifiée.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.validee or (self.pk and Evaluation.objects.filter(pk=self.pk, validee=True).exists()):
+            raise ValidationError("Cette réponse est validée et ne peut plus être supprimée.")
+        return super().delete(*args, **kwargs)
 
 class Decision(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

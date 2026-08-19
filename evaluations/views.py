@@ -5,14 +5,19 @@ from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db import transaction
+from django.core.exceptions import ValidationError
 from django.conf import settings
 from django.core.mail import EmailMessage, send_mail
+from decimal import Decimal, InvalidOperation
 
 from utilisateurs.models import Utilisateur, NomRole
 from candidatures.models import Candidature
-from .models import AffectationCandidat, Etape, ParticipationEtape, Session, StatutEtape, StatutPresence
-from .serializers import ParticipationEtapeSerializer, PlanningConfigurationSerializer, PlanningSerializer
-from utilisateurs.permissions import EstAdminOuGestionProjet, EstAdminOuPedagogie
+from .models import (
+    AffectationCandidat, AffectationEvaluateur, Etape, Evaluation, ParticipationEtape,
+    Question, Session, StatutEtape, StatutPresence, TypeQuestion,
+)
+from .serializers import ParticipationEtapeSerializer, PlanningConfigurationSerializer, PlanningSerializer, QuestionSerializer
+from utilisateurs.permissions import EstAdminOuGestionProjet, EstAdminOuPedagogie, EstEvaluateur
 from candidatures.models import StatutCandidature
 from notifications.models import Notification, StatutNotification, TypeNotification
 
@@ -610,3 +615,379 @@ class ConfirmationPresenceView(APIView):
             affectation.dateConfirmation = timezone.now()
             affectation.save(update_fields=['dateConfirmation'])
         return Response({'detail': 'Présence confirmée.'})
+
+
+class QuestionListeView(APIView):
+    permission_classes = [EstAdminOuPedagogie]
+
+    def get(self, request):
+        questions = Question.objects.select_related('cohorte__formation').order_by(
+            'cohorte__formation__nom', 'cohorte__nom', 'type', 'ordre'
+        )
+        cohorte_id = request.query_params.get('cohorte')
+        type_question = request.query_params.get('type')
+        if cohorte_id:
+            questions = questions.filter(cohorte_id=cohorte_id)
+        if type_question:
+            questions = questions.filter(type=type_question)
+        return Response(QuestionSerializer(questions, many=True).data)
+
+    def post(self, request):
+        serializer = QuestionSerializer(data=request.data)
+        if serializer.is_valid():
+            question = serializer.save()
+            return Response(QuestionSerializer(question).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class QuestionDetailView(APIView):
+    permission_classes = [EstAdminOuPedagogie]
+
+    def get_object(self, pk):
+        return get_object_or_404(Question.objects.select_related('cohorte__formation'), pk=pk)
+
+    def get(self, request, pk):
+        return Response(QuestionSerializer(self.get_object(pk)).data)
+
+    def put(self, request, pk):
+        serializer = QuestionSerializer(self.get_object(pk), data=request.data, partial=True)
+        if serializer.is_valid():
+            try:
+                question = serializer.save()
+            except ValidationError as exc:
+                return Response({'detail': exc.messages[0]}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(QuestionSerializer(question).data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        try:
+            self.get_object(pk).delete()
+        except ValidationError as exc:
+            return Response({'detail': exc.messages[0]}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+ROLE_TO_QUESTION_TYPE = {
+    AffectationEvaluateur.RoleEncadrement.TECHNIQUE: TypeQuestion.TECHNIQUE,
+    AffectationEvaluateur.RoleEncadrement.MOTIVATION: TypeQuestion.SOFT_SKILLS_MOTIVATION,
+}
+
+ROLE_LABELS = {
+    AffectationEvaluateur.RoleEncadrement.TECHNIQUE: 'Entretien technique',
+    AffectationEvaluateur.RoleEncadrement.MOTIVATION: 'Entretien de motivation',
+}
+
+
+def build_interview_id(affectation, role):
+    return f'{affectation.id}:{role.lower()}'
+
+
+def parse_interview_id(interview_id):
+    try:
+        affectation_id, role = str(interview_id).split(':', 1)
+    except ValueError:
+        affectation_id, role = str(interview_id), AffectationEvaluateur.RoleEncadrement.TECHNIQUE
+    role = role.upper()
+    if role not in ROLE_TO_QUESTION_TYPE:
+        raise ValueError('Type d entretien invalide.')
+    return affectation_id, role
+
+
+def get_evaluator_interview(request, interview_id):
+    affectation_id, role = parse_interview_id(interview_id)
+    affectation = get_object_or_404(
+        AffectationCandidat.objects.select_related(
+            'session__etape__cohorte__formation',
+            'participation_etape__candidature__utilisateur',
+        ),
+        pk=affectation_id,
+    )
+    get_object_or_404(
+        AffectationEvaluateur,
+        session=affectation.session,
+        evaluateur=request.user,
+        roleEncadrement=role,
+    )
+    return affectation, role
+
+
+def get_interview_questions(affectation, role):
+    return Question.objects.filter(
+        cohorte=affectation.session.etape.cohorte,
+        type=ROLE_TO_QUESTION_TYPE[role],
+    ).order_by('ordre')
+
+
+def get_interview_evaluations(affectation, role):
+    question_type = ROLE_TO_QUESTION_TYPE[role]
+    return Evaluation.objects.filter(
+        participation=affectation.participation_etape,
+        question__type=question_type,
+    ).select_related('question').order_by('question__ordre')
+
+
+def serialize_question_for_interview(question):
+    return {
+        'id': str(question.id),
+        'text': question.contenu,
+        'question': question.contenu,
+        'maxScore': float(question.baremeMax),
+        'ordre': question.ordre,
+    }
+
+
+def get_interview_evaluation_owner(affectation, role):
+    evaluation = get_interview_evaluations(affectation, role).first()
+    return evaluation.evaluateur if evaluation else None
+
+
+def evaluator_can_edit_interview(request, affectation, role):
+    owner = get_interview_evaluation_owner(affectation, role)
+    return owner is None or owner == request.user
+
+
+def serialize_candidate_from_candidature(candidature):
+    utilisateur = candidature.utilisateur
+    cohorte = candidature.campagne.cohorte if candidature.campagne else None
+    formation = cohorte.formation if cohorte else None
+    return {
+        'id': utilisateur.id,
+        'firstName': utilisateur.first_name,
+        'lastName': utilisateur.last_name,
+        'email': utilisateur.email,
+        'phone': utilisateur.telephone,
+        'formation': formation.nom if formation else '',
+        'promotion': cohorte.nom if cohorte else '',
+        'candidatureId': candidature.id,
+        'numero': candidature.numero,
+        'statut': candidature.statut,
+    }
+
+
+def evaluation_summary(affectation, role):
+    questions = list(get_interview_questions(affectation, role))
+    evaluations = list(get_interview_evaluations(affectation, role))
+    validated = bool(questions) and len(evaluations) == len(questions) and all(item.validee for item in evaluations)
+    if validated:
+        status_value = 'completed'
+    elif evaluations:
+        status_value = 'progress'
+    else:
+        status_value = 'En-attente'
+    total = sum((item.note for item in evaluations), Decimal('0'))
+    average = (total / len(evaluations)) if evaluations else None
+    return questions, evaluations, validated, status_value, average
+
+
+def mark_candidate_finished_if_all_interviews_done(participation):
+    required_types = [TypeQuestion.TECHNIQUE, TypeQuestion.SOFT_SKILLS_MOTIVATION]
+    for question_type in required_types:
+        questions = Question.objects.filter(cohorte=participation.etape.cohorte, type=question_type)
+        if not questions.exists():
+            return
+        validated_count = Evaluation.objects.filter(
+            participation=participation,
+            question__in=questions,
+            validee=True,
+        ).count()
+        if validated_count != questions.count():
+            return
+    participation.statut = StatutEtape.REUSSIE
+    participation.dateSortie = timezone.now()
+    participation.save(update_fields=['statut', 'dateSortie'])
+    candidature = participation.candidature
+    candidature.statut = StatutCandidature.TERMINEE
+    candidature.save(update_fields=['statut'])
+
+
+def serialize_interview(affectation, role):
+    candidature = affectation.participation_etape.candidature
+    utilisateur = candidature.utilisateur
+    _, _, _, status_value, _ = evaluation_summary(affectation, role)
+    return {
+        'id': build_interview_id(affectation, role),
+        'candidateId': utilisateur.id,
+        'candidateName': utilisateur.get_full_name() or utilisateur.email,
+        'type': 'motivation' if role == AffectationEvaluateur.RoleEncadrement.MOTIVATION else 'technique',
+        'typeLabel': ROLE_LABELS[role],
+        'date': affectation.session.date,
+        'startTime': affectation.session.heureDebut,
+        'endTime': affectation.session.heureFin,
+        'location': affectation.session.lieu or affectation.session.localisation or '',
+        'status': status_value,
+        'statusLabel': 'Terminé' if status_value == 'completed' else ('En cours' if status_value == 'progress' else 'En-attente'),
+        'participationId': affectation.participation_etape.id,
+        'candidatureId': candidature.id,
+        'sessionId': affectation.session.id,
+    }
+
+
+def serialize_evaluation_sheet(affectation, role):
+    questions, evaluations, validated, status_value, average = evaluation_summary(affectation, role)
+    response = {
+        'type': 'motivation' if role == AffectationEvaluateur.RoleEncadrement.MOTIVATION else 'technique',
+        'questions': [] if validated else [serialize_question_for_interview(question) for question in questions],
+        'answers': {},
+        'notes': {},
+        'score': float(average) if average is not None else None,
+        'averageScore': float(average) if average is not None else None,
+        'comment': '',
+        'status': status_value,
+        'validated': validated,
+    }
+    if not validated:
+        for evaluation in evaluations:
+            question_id = str(evaluation.question_id)
+            response['answers'][question_id] = evaluation.reponse or ''
+            response['notes'][question_id] = float(evaluation.note)
+            response['comment'] = evaluation.commentaire or response['comment']
+    return response
+
+
+class EvaluatorCandidatesView(APIView):
+    permission_classes = [EstEvaluateur]
+
+    def get(self, request):
+        affectations = AffectationCandidat.objects.filter(
+            session__affectations_evaluateurs__evaluateur=request.user,
+        ).select_related(
+            'participation_etape__candidature__utilisateur',
+            'participation_etape__candidature__campagne__cohorte__formation',
+        ).exclude(statutPresence=StatutPresence.ABSENT).distinct().order_by(
+            'participation_etape__candidature__utilisateur__last_name',
+            'participation_etape__candidature__utilisateur__first_name',
+        )
+        candidatures = []
+        vus = set()
+        for affectation in affectations:
+            candidature = affectation.participation_etape.candidature
+            if candidature.id in vus:
+                continue
+            vus.add(candidature.id)
+            candidatures.append(serialize_candidate_from_candidature(candidature))
+        return Response(candidatures)
+
+
+class EvaluatorCandidateDetailView(APIView):
+    permission_classes = [EstEvaluateur]
+
+    def get(self, request, candidate_id):
+        candidature = get_object_or_404(
+            Candidature.objects.select_related('utilisateur', 'campagne__cohorte__formation').distinct(),
+            utilisateur_id=candidate_id,
+            participations__affectation_session__session__affectations_evaluateurs__evaluateur=request.user,
+        )
+        return Response(serialize_candidate_from_candidature(candidature))
+
+
+class EvaluatorInterviewsView(APIView):
+    permission_classes = [EstEvaluateur]
+
+    def get(self, request):
+        evaluator_assignments = AffectationEvaluateur.objects.filter(
+            evaluateur=request.user,
+            roleEncadrement__in=ROLE_TO_QUESTION_TYPE.keys(),
+        ).select_related('session')
+        roles_by_session = {}
+        for assignment in evaluator_assignments:
+            roles_by_session.setdefault(assignment.session_id, set()).add(assignment.roleEncadrement)
+        affectations = AffectationCandidat.objects.filter(
+            session_id__in=roles_by_session.keys(),
+        ).select_related(
+            'session__etape__cohorte__formation',
+            'participation_etape__candidature__utilisateur',
+        ).exclude(statutPresence=StatutPresence.ABSENT).order_by('session__date', 'session__heureDebut')
+        data = []
+        for affectation in affectations:
+            for role in sorted(roles_by_session.get(affectation.session_id, [])):
+                data.append(serialize_interview(affectation, role))
+        return Response(data)
+
+
+class EvaluatorInterviewDetailView(APIView):
+    permission_classes = [EstEvaluateur]
+
+    def get(self, request, interview_id):
+        try:
+            affectation, role = get_evaluator_interview(request, interview_id)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serialize_interview(affectation, role))
+
+
+class EvaluatorEvaluationView(APIView):
+    permission_classes = [EstEvaluateur]
+
+    def get(self, request, interview_id):
+        try:
+            affectation, role = get_evaluator_interview(request, interview_id)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serialize_evaluation_sheet(affectation, role))
+
+    @transaction.atomic
+    def post(self, request, interview_id):
+        try:
+            affectation, role = get_evaluator_interview(request, interview_id)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        if not evaluator_can_edit_interview(request, affectation, role):
+            return Response(
+                {'detail': 'Cet entretien est déjà pris en charge par un autre évaluateur.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if get_interview_evaluations(affectation, role).filter(validee=True).exists():
+            return Response({'detail': 'Cet entretien est validé et ne peut plus être modifié.'}, status=status.HTTP_400_BAD_REQUEST)
+        questions = list(get_interview_questions(affectation, role))
+        if not questions:
+            return Response({'detail': 'Aucune question configurée pour cet entretien.'}, status=status.HTTP_400_BAD_REQUEST)
+        notes = request.data.get('notes') or {}
+        answers = request.data.get('answers') or {}
+        commentaire = request.data.get('comment') or request.data.get('commentaire') or ''
+        for question in questions:
+            question_id = str(question.id)
+            if question_id not in notes or answers.get(question_id) in (None, ''):
+                return Response({'detail': 'Toutes les questions doivent avoir une réponse et une note.'}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                note = Decimal(str(notes[question_id]))
+            except (InvalidOperation, TypeError):
+                return Response({'detail': 'Une note est invalide.'}, status=status.HTTP_400_BAD_REQUEST)
+            if note < 0 or note > question.baremeMax:
+                return Response({'detail': f'La note de "{question.contenu}" doit être comprise entre 0 et {question.baremeMax}.'}, status=status.HTTP_400_BAD_REQUEST)
+            Evaluation.objects.update_or_create(
+                participation=affectation.participation_etape,
+                question=question,
+                defaults={
+                    'evaluateur': request.user,
+                    'note': note,
+                    'reponse': answers.get(question_id, ''),
+                    'commentaire': commentaire,
+                    'validee': False,
+                },
+            )
+        return Response(serialize_evaluation_sheet(affectation, role))
+
+
+class EvaluatorEvaluationValidateView(APIView):
+    permission_classes = [EstEvaluateur]
+
+    @transaction.atomic
+    def post(self, request, interview_id):
+        try:
+            affectation, role = get_evaluator_interview(request, interview_id)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        if not evaluator_can_edit_interview(request, affectation, role):
+            return Response(
+                {'detail': 'Cet entretien est déjà pris en charge par un autre évaluateur.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        questions = list(get_interview_questions(affectation, role))
+        evaluations = list(get_interview_evaluations(affectation, role).select_for_update())
+        if not questions or len(evaluations) != len(questions):
+            return Response({'detail': 'Toutes les questions doivent être évaluées avant validation.'}, status=status.HTTP_400_BAD_REQUEST)
+        if all(evaluation.validee for evaluation in evaluations):
+            return Response({'evaluation': serialize_evaluation_sheet(affectation, role)})
+        Evaluation.objects.filter(id__in=[evaluation.id for evaluation in evaluations]).update(validee=True)
+        mark_candidate_finished_if_all_interviews_done(affectation.participation_etape)
+        return Response({'evaluation': serialize_evaluation_sheet(affectation, role)})

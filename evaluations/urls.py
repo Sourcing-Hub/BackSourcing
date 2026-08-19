@@ -5,6 +5,10 @@ from .views import (
     ConvocationCandidatsView, ConvocationAffectationView,
     EmargementSessionsView, EmargementSessionDetailView, EmargementPresenceView, EmargementQrView,
     EmargementCloturerView, ConfirmationPresenceView,
+    QuestionListeView, QuestionDetailView,
+    EvaluatorCandidatesView, EvaluatorCandidateDetailView,
+    EvaluatorInterviewsView, EvaluatorInterviewDetailView,
+    EvaluatorEvaluationView, EvaluatorEvaluationValidateView,
 )
 
 urlpatterns = [
@@ -15,6 +19,14 @@ urlpatterns = [
     path('plannings/encadrants/', EncadrantsPlanningView.as_view(), name='plannings-encadrants'),
     path('convocations/candidats/', ConvocationCandidatsView.as_view(), name='convocations-candidats'),
     path('convocations/affecter/', ConvocationAffectationView.as_view(), name='convocations-affecter'),
+    path('questions/', QuestionListeView.as_view(), name='questions-liste'),
+    path('questions/<uuid:pk>/', QuestionDetailView.as_view(), name='questions-detail'),
+    path('evaluator/candidates/', EvaluatorCandidatesView.as_view(), name='evaluator-candidates'),
+    path('evaluator/candidates/<uuid:candidate_id>/', EvaluatorCandidateDetailView.as_view(), name='evaluator-candidate-detail'),
+    path('evaluator/interviews/', EvaluatorInterviewsView.as_view(), name='evaluator-interviews'),
+    path('evaluator/interviews/<str:interview_id>/', EvaluatorInterviewDetailView.as_view(), name='evaluator-interview-detail'),
+    path('evaluator/interviews/<str:interview_id>/evaluation/', EvaluatorEvaluationView.as_view(), name='evaluator-evaluation'),
+    path('evaluator/interviews/<str:interview_id>/evaluation/validate/', EvaluatorEvaluationValidateView.as_view(), name='evaluator-evaluation-validate'),
     path('emargement/sessions/', EmargementSessionsView.as_view(), name='emargement-sessions'),
     path('emargement/sessions/<uuid:session_id>/', EmargementSessionDetailView.as_view(), name='emargement-session-detail'),
     path('emargement/sessions/<uuid:session_id>/cloturer/', EmargementCloturerView.as_view(), name='emargement-cloturer'),
