@@ -89,8 +89,7 @@ class Evaluation(models.Model):
     note = models.DecimalField(max_digits=5, decimal_places=2)
     commentaire = models.TextField(blank=True, null=True)
     dateEvaluation = models.DateTimeField(auto_now_add=True)
-    validee = models.BooleanField(default=False)
-
+    validee = models.BooleanField(default=False) 
     evaluateur = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='evaluations_donnees')
     participation = models.ForeignKey(ParticipationEtape, on_delete=models.CASCADE, related_name='evaluations')
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='evaluations')
@@ -100,5 +99,4 @@ class Decision(models.Model):
     type = models.CharField(max_length=20, choices=TypeDecision.choices)
     motif = models.TextField(blank=True, null=True)
     dateDecision = models.DateTimeField(auto_now_add=True)
-    
     candidature = models.OneToOneField('candidatures.Candidature', on_delete=models.CASCADE, related_name='decision_finale')

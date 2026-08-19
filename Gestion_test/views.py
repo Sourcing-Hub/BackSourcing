@@ -11,6 +11,10 @@ from django.contrib.auth import get_user_model
 from .serializers import SoumissionTestSerializer
 from rest_framework.parsers import MultiPartParser, FormParser
 from .models import SoumissionTest
+import io
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from django.http import HttpResponse
 
 
 class TestViewSet(viewsets.ModelViewSet):

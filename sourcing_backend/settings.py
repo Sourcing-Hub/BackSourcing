@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'candidatures',
     'evaluations',
     'notifications',
+    'Gestion_test',
 ]
 
 MIDDLEWARE = [
@@ -173,3 +174,7 @@ FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
 
 # Durée de validité du token d'activation (en heures)
 DELAI_ACTIVATION_TOKEN_HEURES = 48
+
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
