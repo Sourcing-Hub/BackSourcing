@@ -4,7 +4,7 @@ from utilisateurs.models import Utilisateur, NomRole
 from .models import AffectationEvaluateur, Etape, ParticipationEtape, Session
 
 class EtapeSerializer(serializers.ModelSerializer):
-    """Sérialiseur pour la consultation des étapes d'évaluation."""
+    """Sérialiseur pour faire la consultation des étapes d'évaluation."""
     class Meta:
         model = Etape
         fields = ['id', 'nom', 'ordre']
