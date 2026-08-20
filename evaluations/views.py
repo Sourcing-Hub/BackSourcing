@@ -12,6 +12,7 @@ from utilisateurs.models import Utilisateur, NomRole
 from candidatures.models import Candidature
 from .models import AffectationCandidat, Etape, ParticipationEtape, Session, StatutEtape, StatutPresence
 from .serializers import ParticipationEtapeSerializer, PlanningConfigurationSerializer, PlanningSerializer
+from .assistant_services import OpenRouterError, extract_slot
 from utilisateurs.permissions import EstAdminOuGestionProjet, EstAdminOuPedagogie
 from candidatures.models import StatutCandidature
 from notifications.models import Notification, StatutNotification, TypeNotification
@@ -177,6 +178,51 @@ class PlanningConfigurationView(APIView):
             sessions = serializer.save()
             return Response(PlanningSerializer(sessions, many=True).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class TextAssistantView(APIView):
+    """Crée un créneau à partir d'un texte déjà transcrit par le navigateur."""
+    permission_classes = [EstAdminOuPedagogie]
+
+    def post(self, request):
+        if not (request.user.est_admin() or request.user.est_equipe_gestion_projet()):
+            return Response({'detail': 'Réservé aux administrateurs et à la gestion de projet.'}, status=status.HTTP_403_FORBIDDEN)
+        text, etape_id = request.data.get('texte', '').strip(), request.data.get('etape')
+        if not text or not etape_id:
+            return Response({'detail': "Les champs 'texte' et 'etape' sont requis."}, status=status.HTTP_400_BAD_REQUEST)
+
+        etape_initiale = get_object_or_404(Etape.objects.select_related('cohorte'), pk=etape_id)
+        etapes = list(Etape.objects.filter(cohorte=etape_initiale.cohorte))
+        encadrants = list(Utilisateur.objects.select_related('role').filter(role__nom__in=[NomRole.EVALUATEUR, NomRole.EQUIPE_PEDAGOGIQUE], compteActive=True))
+        noms_encadrants = {user.get_full_name().strip(): user for user in encadrants if user.get_full_name().strip()}
+        try:
+            slot = extract_slot(text, [etape.nom for etape in etapes], list(noms_encadrants))
+        except OpenRouterError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+
+        etape = next((item for item in etapes if str(slot.get('etape') or '').casefold() == item.nom.casefold()), etape_initiale)
+        technique = noms_encadrants.get(str(slot.get('coachTechnique') or ''))
+        motivation = noms_encadrants.get(str(slot.get('coachMotivation') or ''))
+        # Aucune écriture ici : le front préremplit le formulaire et l'utilisateur confirme ensuite.
+        return Response({
+            'message': 'Formulaire prérempli. Vérifiez les informations avant l’enregistrement.',
+            'transcription': text,
+            'configuration': {
+                'etape': str(etape.id),
+                'lieu': slot.get('lieu') or request.data.get('lieu', ''),
+                'localisation': slot.get('localisation') or request.data.get('localisation', ''),
+                'coachTechnique': str(technique.id) if technique else '',
+                'coachMotivation': str(motivation.id) if motivation else '',
+                'jours': [{
+                    'date': slot.get('date') or '',
+                    'creneaux': [{
+                        'heureDebut': slot.get('heureDebut') or '',
+                        'heureFin': slot.get('heureFin') or '',
+                        'capacite': slot.get('capacite') or '',
+                    }],
+                }],
+            },
+        })
 
 
 class EncadrantsPlanningView(APIView):

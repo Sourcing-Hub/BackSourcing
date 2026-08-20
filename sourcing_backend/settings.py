@@ -174,5 +174,10 @@ DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'SourcingHub <noreply@sourc
 # ─────────────────────────────────────────────
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
 
+# Assistant vocal : la clé reste exclusivement côté Django.
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '').strip()
+OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'openrouter/auto')
+
+
 # Durée de validité du token d'activation (en heures)
 DELAI_ACTIVATION_TOKEN_HEURES = 48

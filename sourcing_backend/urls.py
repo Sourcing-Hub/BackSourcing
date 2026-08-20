@@ -23,6 +23,7 @@ urlpatterns = [
 
     # Evaluations / Participations (Suivi de présence QR Code)
     path('api/evaluations/', include('evaluations.urls')),
+    path('api/assistant/', include('evaluations.assistant_urls')),
 
     # Documentation API (Swagger / ReDoc)
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
