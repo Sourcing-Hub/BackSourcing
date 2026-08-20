@@ -32,6 +32,7 @@ TYPES_AVEC_OPTIONS = {
 # ─────────────────────────────────────────────
 
 class Formulaire(models.Model):
+    """Représente le formulaire dynamique configuré pour une campagne de recrutement."""
     id               = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     titre            = models.CharField(max_length=255)
     description      = models.TextField(blank=True, null=True)
@@ -76,6 +77,11 @@ class Formulaire(models.Model):
     def depublier(self):
         self.publie = False
         self.save(update_fields=['publie', 'dateModification'])
+
+    def save(self, *args, **kwargs):
+        if self.campagne:
+            self.publie = self.campagne.est_ouverte()
+        super().save(*args, **kwargs)
 
     def nombre_champs(self) -> int:
         return self.champs.count()

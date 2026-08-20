@@ -92,14 +92,16 @@ class FormulaireListeSerializer(serializers.ModelSerializer):
 # ─────────────────────────────────────────────
 
 class FormulaireDetailSerializer(serializers.ModelSerializer):
-    champs        = ChampFormulaireSerializer(many=True, read_only=True)
-    campagne_nom  = serializers.SerializerMethodField()
+    champs                 = ChampFormulaireSerializer(many=True, read_only=True)
+    campagne_nom           = serializers.SerializerMethodField()
+    campagne_est_ouverte   = serializers.SerializerMethodField()
+    campagne_statut        = serializers.SerializerMethodField()
 
     class Meta:
         model = Formulaire
         fields = [
             'id', 'titre', 'description', 'publie',
-            'campagne', 'campagne_nom',
+            'campagne', 'campagne_nom', 'campagne_est_ouverte', 'campagne_statut',
             'champs',
             'dateCreation', 'dateModification',
         ]
@@ -108,10 +110,59 @@ class FormulaireDetailSerializer(serializers.ModelSerializer):
     def get_campagne_nom(self, obj):
         return obj.campagne.nom if obj.campagne else None
 
+    def get_campagne_est_ouverte(self, obj):
+        return obj.campagne.est_ouverte() if obj.campagne else True
+
+    def get_campagne_statut(self, obj):
+        return obj.campagne.statut if obj.campagne else None
+
     def create(self, validated_data):
         request = self.context.get('request')
         validated_data['creePar'] = request.user if request else None
-        return super().create(validated_data)
+        formulaire = super().create(validated_data)
+        
+        # Create default fields: Prénom, Nom, Adresse Email, Téléphone, Genre
+        from .models import ChampFormulaire, OptionChamp, TypeChamp
+        
+        ChampFormulaire.objects.create(
+            formulaire=formulaire,
+            libelle="Prénom",
+            type=TypeChamp.TEXTE,
+            obligatoire=True,
+            ordre=0
+        )
+        ChampFormulaire.objects.create(
+            formulaire=formulaire,
+            libelle="Nom",
+            type=TypeChamp.TEXTE,
+            obligatoire=True,
+            ordre=1
+        )
+        ChampFormulaire.objects.create(
+            formulaire=formulaire,
+            libelle="Adresse Email",
+            type=TypeChamp.EMAIL,
+            obligatoire=True,
+            ordre=2
+        )
+        ChampFormulaire.objects.create(
+            formulaire=formulaire,
+            libelle="Téléphone",
+            type=TypeChamp.TELEPHONE,
+            obligatoire=True,
+            ordre=3
+        )
+        genre = ChampFormulaire.objects.create(
+            formulaire=formulaire,
+            libelle="Genre",
+            type=TypeChamp.LISTE_DEROULANTE,
+            obligatoire=True,
+            ordre=4
+        )
+        OptionChamp.objects.create(champ=genre, libelle="Homme", valeur="HOMME", ordre=0)
+        OptionChamp.objects.create(champ=genre, libelle="Femme", valeur="FEMME", ordre=1)
+        
+        return formulaire
 
 
 # ─────────────────────────────────────────────
@@ -170,5 +221,5 @@ class AssociationCampagneSerializer(serializers.Serializer):
     def save(self):
         formulaire = self.context['formulaire']
         formulaire.campagne = self.validated_data['campagne_id']
-        formulaire.save(update_fields=['campagne'])
+        formulaire.save()
         return formulaire

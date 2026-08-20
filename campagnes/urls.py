@@ -3,10 +3,15 @@ from .views import (
     FormationListeView, FormationDetailView,
     CohorteListeView, CohorteDetailView,
     CampagneListeView, CampagneDetailView,
-    CampagneOuvrirView, CampagneFermerView, CampagneArchiverView,
+    CampagneOuvrirView, CampagneFermerView,
+    CampagnePubliqueListeView, CampagnePubliqueDetailView,
 )
 
 urlpatterns = [
+    # Campagnes publiques
+    path('publiques/', CampagnePubliqueListeView.as_view(), name='campagnes-publiques'),
+    path('publiques/<uuid:pk>/', CampagnePubliqueDetailView.as_view(), name='campagnes-publiques-detail'),
+
     # Formations
     path('formations/', FormationListeView.as_view(), name='formations-liste'),
     path('formations/<uuid:pk>/', FormationDetailView.as_view(), name='formations-detail'),
@@ -20,5 +25,4 @@ urlpatterns = [
     path('<uuid:pk>/', CampagneDetailView.as_view(), name='campagnes-detail'),
     path('<uuid:pk>/ouvrir/', CampagneOuvrirView.as_view(), name='campagnes-ouvrir'),
     path('<uuid:pk>/fermer/', CampagneFermerView.as_view(), name='campagnes-fermer'),
-    path('<uuid:pk>/archiver/', CampagneArchiverView.as_view(), name='campagnes-archiver'),
 ]

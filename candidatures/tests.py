@@ -1,3 +1,7 @@
 from django.test import TestCase
 
-# Create your tests here.
+# Tests pour la soumission et validation des candidatures
+class CandidatureSoumissionTestCase(TestCase):
+    def setUp(self):
+        pass
+

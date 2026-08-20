@@ -1,5 +1,5 @@
 """
-Vues pour la gestion des Formulaires dynamiques.
+Vues (API & schémas OpenAPI) pour la gestion des Formulaires dynamiques et des champs associés.
 
 Endpoints :
   Formulaires :
@@ -260,3 +260,24 @@ class OptionDetailView(APIView):
             return Response({"detail": "Option introuvable."}, status=status.HTTP_404_NOT_FOUND)
         option.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class FormulairePubliqueCampagneView(APIView):
+    """
+    GET /api/formulaires/publique/campagne/<campagne_id>/
+    Accès public. Retourne le formulaire dynamique associé à la campagne.
+    """
+    permission_classes = []
+
+    def get(self, request, campagne_id):
+        try:
+            formulaire = Formulaire.objects.prefetch_related('champs__options').get(campagne_id=campagne_id)
+        except Formulaire.DoesNotExist:
+            return Response({"detail": "Aucun formulaire associé à cette campagne."}, status=status.HTTP_404_NOT_FOUND)
+        
+        if not formulaire.campagne.est_ouverte():
+            return Response({"detail": "Aucun formulaire publié associé à cette campagne (la campagne est fermée ou expirée)."}, status=status.HTTP_400_BAD_REQUEST)
+            
+        return Response(FormulaireDetailSerializer(formulaire).data)
+
+

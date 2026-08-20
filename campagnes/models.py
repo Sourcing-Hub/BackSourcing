@@ -10,7 +10,6 @@ class StatutCampagne(models.TextChoices):
     BROUILLON  = 'BROUILLON',  'Brouillon'
     OUVERTE    = 'OUVERTE',    'Ouverte'
     FERMEE     = 'FERMEE',     'Fermée'
-    ARCHIVEE   = 'ARCHIVEE',   'Archivée'
 
 
 # ─────────────────────────────────────────────
@@ -18,6 +17,7 @@ class StatutCampagne(models.TextChoices):
 # ─────────────────────────────────────────────
 
 class Formation(models.Model):
+    """Représente un programme de formation proposé sur la plateforme."""
     id          = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     nom         = models.CharField(max_length=255, unique=True)
     description = models.TextField(blank=True, null=True)
@@ -39,7 +39,7 @@ class Formation(models.Model):
 
 class Cohorte(models.Model):
     id        = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    nom       = models.CharField(max_length=255, unique=True)
+    nom       = models.CharField(max_length=255)  # Unique par formation (voir unique_together)
     dateDebut = models.DateField(blank=True, null=True)
     dateFin   = models.DateField(blank=True, null=True)
     formation = models.ForeignKey(Formation, on_delete=models.CASCADE, related_name='cohortes')
@@ -48,9 +48,18 @@ class Cohorte(models.Model):
         verbose_name = 'Cohorte'
         verbose_name_plural = 'Cohortes'
         ordering = ['-dateDebut']
+        unique_together = [('nom', 'formation')]  # P1 peut exister pour chaque formation
 
     def __str__(self):
         return f"{self.nom} — {self.formation.nom}"
+
+    @property
+    def est_active(self) -> bool:
+        """Vérifie si la cohorte est actuellement en cours selon les dates."""
+        today = timezone.now().date()
+        if self.dateDebut and self.dateFin:
+            return self.dateDebut <= today <= self.dateFin
+        return True
 
 
 # ─────────────────────────────────────────────
@@ -90,12 +99,35 @@ class Campagne(models.Model):
     def __str__(self):
         return self.nom
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        try:
+            if hasattr(self, 'formulaire') and self.formulaire:
+                form = self.formulaire
+                expected_publie = self.est_ouverte()
+                if form.publie != expected_publie:
+                    form.publie = expected_publie
+                    form.save(update_fields=['publie'])
+        except Exception:
+            pass
+
     # ── Actions métier ──────────────────────────────────────
     def est_ouverte(self) -> bool:
         now = timezone.now()
         return self.statut == StatutCampagne.OUVERTE and self.dateOuverture <= now <= self.dateCloture
 
     def ouvrir(self):
+        has_form = False
+        try:
+            if hasattr(self, 'formulaire') and self.formulaire:
+                has_form = True
+        except Exception:
+            pass
+
+        if not has_form:
+            from django.core.exceptions import ValidationError
+            raise ValidationError("Impossible d'ouvrir cette campagne car aucun formulaire ne lui est associé.")
+
         self.statut  = StatutCampagne.OUVERTE
         self.publiee = True
         self.save(update_fields=['statut', 'publiee', 'dateModification'])
@@ -103,9 +135,3 @@ class Campagne(models.Model):
     def fermer(self):
         self.statut = StatutCampagne.FERMEE
         self.save(update_fields=['statut', 'dateModification'])
-
-    def archiver(self):
-        self.statut   = StatutCampagne.ARCHIVEE
-        self.archivee = True
-        self.publiee  = False
-        self.save(update_fields=['statut', 'archivee', 'publiee', 'dateModification'])

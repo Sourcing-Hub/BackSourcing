@@ -56,10 +56,21 @@ class Role(models.Model):
 
 
 # ─────────────────────────────────────────────
-# Modèle Utilisateur (Custom User Model)
+# Custom QuerySet / Helper Methods
 # ─────────────────────────────────────────────
 
+class UtilisateurManager(models.Manager):
+    """Manager personnalisé pour filtrer les utilisateurs actifs et par rôle."""
+    def actifs(self):
+        return self.filter(is_active=True, compteActive=True)
+
+
+
 class Utilisateur(AbstractUser):
+    """
+    Modèle utilisateur personnalisé (Custom User Model) étendant AbstractUser.
+    Gère les rôles, statuts d'activation et métadonnées de profil.
+    """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     # Champs personnels

@@ -25,7 +25,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.exceptions import TokenError
 
-from .models import Utilisateur
+from .models import Utilisateur, StatutUtilisateur
 from .serializers import (
     ConnexionTokenSerializer,
     ActivationCompteSerializer,
@@ -52,6 +52,7 @@ from .emails import (
 class ConnexionView(TokenObtainPairView):
     """
     POST /api/auth/connexion/
+    Authentification utilisateur et émission des jetons JWT.
     Corps : { "username": "email@example.com", "password": "****" }
     Retourne : { access, refresh, role, profilComplet }
     """
@@ -85,6 +86,7 @@ class DeconnexionView(APIView):
 class ActivationCompteView(APIView):
     """
     POST /api/auth/activer/
+    Activation du compte utilisateur via lien sécurisé et définition du mot de passe.
     Corps : { "token": "<uuid>", "mot_de_passe": "***", "mot_de_passe_confirmation": "***" }
     Active le compte du personnel ou de l'évaluateur invité.
     """
@@ -274,3 +276,90 @@ class ListeUtilisateursView(APIView):
 
         serializer = ListeUtilisateursSerializer(qs, many=True)
         return Response(serializer.data)
+
+
+class UtilisateurQrCodeView(APIView):
+    """
+    GET /api/utilisateurs/<uuid:pk>/qr-code/
+    Génère dynamiquement un code QR d'identification pour l'utilisateur.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        user = request.user
+        # Seul l'utilisateur lui-même ou les membres de l'équipe (admin/pedagogy/project) peuvent voir le code QR
+        if not (user.id == pk or user.est_admin() or user.est_equipe_pedagogique() or user.est_equipe_gestion_projet()):
+            return Response({"detail": "Non autorisé."}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            target_user = Utilisateur.objects.get(pk=pk)
+        except Utilisateur.DoesNotExist:
+            return Response({"detail": "Utilisateur introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+        import qrcode
+        from qrcode.image.pil import PilImage
+        import io
+        from django.http import HttpResponse
+        from django.conf import settings
+
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
+        qr_data = f"{frontend_url}/scan-candidat/{target_user.id}"
+
+        qr = qrcode.QRCode(version=1, box_size=10, border=5)
+        qr.add_data(qr_data)
+        qr.make(fit=True)
+
+        img = qr.make_image(image_factory=PilImage, fill_color="black", back_color="white")
+        
+        buffer = io.BytesIO()
+        img.save(buffer, format="PNG")
+        buffer.seek(0)
+        
+        return HttpResponse(buffer.getvalue(), content_type="image/png")
+
+
+class AdminUtilisateurDetailView(APIView):
+    """
+    PATCH  /api/utilisateurs/<uuid:pk>/ -> Bloquer / Débloquer ou modifier un utilisateur
+    DELETE /api/utilisateurs/<uuid:pk>/ -> Supprimer définitivement un utilisateur
+    """
+    permission_classes = [EstAdministrateur]
+
+    def patch(self, request, pk):
+        try:
+            user = Utilisateur.objects.get(pk=pk)
+        except Utilisateur.DoesNotExist:
+            return Response({"detail": "Utilisateur introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+        if user == request.user:
+            return Response({"detail": "Vous ne pouvez pas modifier votre propre compte."}, status=status.HTTP_400_BAD_REQUEST)
+
+        action = request.data.get('action')
+        if action == 'bloquer':
+            user.is_active = False
+            user.statut = StatutUtilisateur.INACTIF
+            user.save()
+            return Response({"detail": "Compte bloqué avec succès."})
+        elif action == 'debloquer':
+            user.is_active = True
+            user.statut = StatutUtilisateur.ACTIF
+            user.save()
+            return Response({"detail": "Compte débloqué avec succès."})
+
+        serializer = ListeUtilisateursSerializer(user, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        try:
+            user = Utilisateur.objects.get(pk=pk)
+        except Utilisateur.DoesNotExist:
+            return Response({"detail": "Utilisateur introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+        if user == request.user:
+            return Response({"detail": "Vous ne pouvez pas supprimer votre propre compte."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.delete()
+        return Response({"detail": "Utilisateur supprimé avec succès."}, status=status.HTTP_200_OK)

@@ -98,12 +98,15 @@ class CreationPersonnelSerializer(serializers.Serializer):
     """
     Utilisé par l'administrateur pour créer un compte Personnel
     (Équipe Pédagogique ou Équipe Gestion de Projet).
-    Seul l'email est obligatoire ; un token d'invitation est envoyé par email.
     """
     email = serializers.EmailField()
+    prenom = serializers.CharField(required=False, allow_blank=True, default='')
+    nom = serializers.CharField(required=False, allow_blank=True, default='')
     role = serializers.ChoiceField(choices=[
         NomRole.EQUIPE_PEDAGOGIQUE,
         NomRole.EQUIPE_GESTION_PROJET,
+        NomRole.EVALUATEUR,
+        NomRole.ADMINISTRATEUR,
     ])
 
     def validate_email(self, valeur):
@@ -120,12 +123,16 @@ class CreationPersonnelSerializer(serializers.Serializer):
     def create(self, validated_data):
         email = validated_data['email']
         role = validated_data['role']
+        first_name = validated_data.get('prenom') or validated_data.get('first_name', '')
+        last_name = validated_data.get('nom') or validated_data.get('last_name', '')
 
         utilisateur = Utilisateur.objects.create(
             email=email,
-            username=email,  # username = email pour simplifier
+            username=email,
+            first_name=first_name,
+            last_name=last_name,
             role=role,
-            is_active=False,  # inactif jusqu'à activation
+            is_active=False,
             compteActive=False,
         )
         utilisateur.generer_token_activation()
@@ -137,6 +144,8 @@ class CreationEvaluateurSerializer(serializers.Serializer):
     Utilisé par l'équipe pédagogique pour créer un compte Évaluateur.
     """
     email = serializers.EmailField()
+    prenom = serializers.CharField(required=False, allow_blank=True, default='')
+    nom = serializers.CharField(required=False, allow_blank=True, default='')
 
     def validate_email(self, valeur):
         if Utilisateur.objects.filter(email=valeur).exists():
@@ -146,10 +155,14 @@ class CreationEvaluateurSerializer(serializers.Serializer):
     def create(self, validated_data):
         email = validated_data['email']
         role = Role.objects.get(nom=NomRole.EVALUATEUR)
+        first_name = validated_data.get('prenom') or validated_data.get('first_name', '')
+        last_name = validated_data.get('nom') or validated_data.get('last_name', '')
 
         utilisateur = Utilisateur.objects.create(
             email=email,
             username=email,
+            first_name=first_name,
+            last_name=last_name,
             role=role,
             is_active=False,
             compteActive=False,
@@ -177,6 +190,11 @@ class ProfilUtilisateurSerializer(serializers.ModelSerializer):
 
     def get_role_nom(self, obj):
         return obj.role.nom if obj.role else None
+
+    def validate_telephone(self, value):
+        if value and len(value.strip()) < 8:
+            raise serializers.ValidationError("Le numéro de téléphone doit comporter au moins 8 caractères.")
+        return value
 
     def update(self, instance, validated_data):
         for attr, value in validated_data.items():
@@ -273,13 +291,15 @@ class ConfirmationReinitMotDePasseSerializer(serializers.Serializer):
 
 class ListeUtilisateursSerializer(serializers.ModelSerializer):
     role_nom = serializers.SerializerMethodField()
+    prenom = serializers.CharField(source='first_name', read_only=True)
+    nom = serializers.CharField(source='last_name', read_only=True)
 
     class Meta:
         model = Utilisateur
         fields = [
-            'id', 'email', 'first_name', 'last_name',
+            'id', 'email', 'first_name', 'last_name', 'prenom', 'nom',
             'telephone', 'statut', 'compteActive', 'profilComplet',
-            'role_nom', 'dateCreation',
+            'role_nom', 'dateCreation', 'is_active',
         ]
 
     def get_role_nom(self, obj):

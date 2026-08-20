@@ -8,6 +8,7 @@ class StatutCandidature(models.TextChoices):
     TERMINEE = 'TERMINEE', 'Terminée'
 
 class Candidature(models.Model):
+    """Représente le dossier de candidature d'un utilisateur pour une campagne."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     numero = models.CharField(max_length=50, unique=True)
     dateSoumission = models.DateTimeField(auto_now_add=True)

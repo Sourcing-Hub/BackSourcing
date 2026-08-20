@@ -14,20 +14,65 @@ class FormationSerializer(serializers.ModelSerializer):
         model = Formation
         fields = ['id', 'nom', 'description', 'dateDebut', 'dateFin']
 
+    def validate(self, data):
+        debut = data.get('dateDebut')
+        fin   = data.get('dateFin')
+        if debut and fin and debut >= fin:
+            raise serializers.ValidationError(
+                {"dateFin": "La date de fin doit être postérieure à la date de début."}
+            )
+        return data
+
 
 # ─────────────────────────────────────────────
 # Cohorte
 # ─────────────────────────────────────────────
 
+from evaluations.models import Etape
+
+class EtapeInlineSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Etape
+        fields = ['id', 'nom', 'ordre']
+
 class CohorteSerializer(serializers.ModelSerializer):
     formation_nom = serializers.SerializerMethodField()
+    etapes = serializers.SerializerMethodField()
 
     class Meta:
         model = Cohorte
-        fields = ['id', 'nom', 'dateDebut', 'dateFin', 'formation', 'formation_nom']
+        fields = ['id', 'nom', 'dateDebut', 'dateFin', 'formation', 'formation_nom', 'etapes']
 
     def get_formation_nom(self, obj):
         return obj.formation.nom if obj.formation else None
+
+    def get_etapes(self, obj):
+        if not obj.etapes.exists():
+            Etape.objects.bulk_create([
+                Etape(cohorte=obj, nom="Réunion d'information", ordre=1),
+                Etape(cohorte=obj, nom='Entretien technique et motivation', ordre=2),
+                Etape(cohorte=obj, nom='Entretien final', ordre=3),
+            ])
+        return EtapeInlineSerializer(obj.etapes.all(), many=True).data
+
+    def validate(self, data):
+        debut = data.get('dateDebut')
+        fin   = data.get('dateFin')
+        if debut and fin and debut >= fin:
+            raise serializers.ValidationError(
+                {"dateFin": "La date de fin doit être postérieure à la date de début."}
+            )
+        return data
+
+    def create(self, validated_data):
+        """Initialise le parcours de sélection dès la création d'une cohorte."""
+        cohorte = super().create(validated_data)
+        Etape.objects.bulk_create([
+            Etape(cohorte=cohorte, nom="Réunion d'information", ordre=1),
+            Etape(cohorte=cohorte, nom='Entretien technique et motivation', ordre=2),
+            Etape(cohorte=cohorte, nom='Entretien final', ordre=3),
+        ])
+        return cohorte
 
 
 # ─────────────────────────────────────────────

@@ -1,5 +1,5 @@
 """
-Vues pour la gestion des Campagnes.
+Vues (API Endpoints & OpenAPI schemas) pour la gestion des Campagnes, Formations et Cohortes.
 
 Endpoints :
   Formations :
@@ -29,7 +29,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 
-from utilisateurs.permissions import EstAdministrateur, EstAdminOuPedagogie, EstPersonnel
+from utilisateurs.permissions import EstAdministrateur, EstAdminOuPedagogie, EstPersonnel, EstAdminOuGestionProjet
 from .models import Formation, Cohorte, Campagne
 from .serializers import (
     FormationSerializer,
@@ -51,7 +51,7 @@ class FormationListeView(APIView):
         return Response(FormationSerializer(qs, many=True).data)
 
     def post(self, request):
-        if not request.user.est_admin():
+        if not (request.user.est_admin() or request.user.est_equipe_gestion_projet()):
             return Response({"detail": "Réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
         s = FormationSerializer(data=request.data)
         if s.is_valid():
@@ -76,7 +76,7 @@ class FormationDetailView(APIView):
         return Response(FormationSerializer(obj).data)
 
     def put(self, request, pk):
-        if not request.user.est_admin():
+        if not (request.user.est_admin() or request.user.est_equipe_gestion_projet()):
             return Response({"detail": "Réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
         obj = self._get_object(pk)
         if not obj:
@@ -88,7 +88,7 @@ class FormationDetailView(APIView):
         return Response(s.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):
-        if not request.user.est_admin():
+        if not (request.user.est_admin() or request.user.est_equipe_gestion_projet()):
             return Response({"detail": "Réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
         obj = self._get_object(pk)
         if not obj:
@@ -112,7 +112,7 @@ class CohorteListeView(APIView):
         return Response(CohorteSerializer(qs, many=True).data)
 
     def post(self, request):
-        if not request.user.est_admin():
+        if not (request.user.est_admin() or request.user.est_equipe_gestion_projet()):
             return Response({"detail": "Réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
         s = CohorteSerializer(data=request.data)
         if s.is_valid():
@@ -137,7 +137,7 @@ class CohorteDetailView(APIView):
         return Response(CohorteSerializer(obj).data)
 
     def put(self, request, pk):
-        if not request.user.est_admin():
+        if not (request.user.est_admin() or request.user.est_equipe_gestion_projet()):
             return Response({"detail": "Réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
         obj = self._get_object(pk)
         if not obj:
@@ -149,7 +149,7 @@ class CohorteDetailView(APIView):
         return Response(s.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):
-        if not request.user.est_admin():
+        if not (request.user.est_admin() or request.user.est_equipe_gestion_projet()):
             return Response({"detail": "Réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
         obj = self._get_object(pk)
         if not obj:
@@ -176,7 +176,7 @@ class CampagneListeView(APIView):
         return Response(CampagneListeSerializer(qs, many=True).data)
 
     def post(self, request):
-        if not request.user.est_admin():
+        if not (request.user.est_admin() or request.user.est_equipe_gestion_projet()):
             return Response({"detail": "Réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
         s = CampagneDetailSerializer(data=request.data, context={'request': request})
         if s.is_valid():
@@ -201,36 +201,53 @@ class CampagneDetailView(APIView):
         return Response(CampagneDetailSerializer(obj).data)
 
     def put(self, request, pk):
-        if not request.user.est_admin():
+        if not (request.user.est_admin() or request.user.est_equipe_gestion_projet()):
             return Response({"detail": "Réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
         obj = self._get_object(pk)
         if not obj:
             return Response({"detail": "Campagne introuvable."}, status=status.HTTP_404_NOT_FOUND)
-        if obj.statut == 'ARCHIVEE':
-            return Response({"detail": "Une campagne archivée ne peut plus être modifiée."}, status=status.HTTP_400_BAD_REQUEST)
         s = CampagneDetailSerializer(obj, data=request.data, partial=True, context={'request': request})
         if s.is_valid():
             s.save()
             return Response(s.data)
         return Response(s.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    def delete(self, request, pk):
+        if not (request.user.est_admin() or request.user.est_equipe_gestion_projet()):
+            return Response({"detail": "Réservé aux administrateurs."}, status=status.HTTP_403_FORBIDDEN)
+        obj = self._get_object(pk)
+        if not obj:
+            return Response({"detail": "Campagne introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class CampagneOuvrirView(APIView):
-    permission_classes = [EstAdministrateur]
+    permission_classes = [EstAdminOuGestionProjet]
 
     def post(self, request, pk):
         try:
             campagne = Campagne.objects.get(pk=pk)
         except Campagne.DoesNotExist:
             return Response({"detail": "Campagne introuvable."}, status=status.HTTP_404_NOT_FOUND)
-        if campagne.statut == 'ARCHIVEE':
-            return Response({"detail": "Impossible d'ouvrir une campagne archivée."}, status=status.HTTP_400_BAD_REQUEST)
-        campagne.ouvrir()
+        
+        from django.core.exceptions import ValidationError
+        try:
+            campagne.ouvrir()
+        except ValidationError as e:
+            msg = e.message if hasattr(e, 'message') else str(e)
+            # Remove list styling from django error if raised as list
+            if isinstance(msg, list):
+                msg = ", ".join(msg)
+            elif hasattr(e, 'message_dict') and e.message_dict:
+                msg = ", ".join([f"{k}: {', '.join(v)}" for k, v in e.message_dict.items()])
+            return Response({"detail": msg}, status=status.HTTP_400_BAD_REQUEST)
+
         return Response({"detail": f"La campagne « {campagne.nom} » est maintenant ouverte."})
 
 
 class CampagneFermerView(APIView):
-    permission_classes = [EstAdministrateur]
+    permission_classes = [EstAdminOuGestionProjet]
 
     def post(self, request, pk):
         try:
@@ -241,13 +258,45 @@ class CampagneFermerView(APIView):
         return Response({"detail": f"La campagne « {campagne.nom} » a été fermée."})
 
 
-class CampagneArchiverView(APIView):
-    permission_classes = [EstAdministrateur]
+class CampagnePubliqueListeView(APIView):
+    """
+    GET /api/campagnes/publiques/
+    Accès public. Liste uniquement les campagnes ouvertes et publiées.
+    """
+    permission_classes = []
 
-    def post(self, request, pk):
+    def get(self, request):
+        from django.utils import timezone
+        now = timezone.now()
+        qs = Campagne.objects.filter(
+            statut='OUVERTE',
+            publiee=True,
+            dateOuverture__lte=now,
+            dateCloture__gte=now
+        ).select_related('cohorte__formation')
+        return Response(CampagneListeSerializer(qs, many=True).data)
+
+
+class CampagnePubliqueDetailView(APIView):
+    """
+    GET /api/campagnes/publiques/<id>/
+    Accès public. Retourne les détails d'une campagne ouverte et publiée.
+    """
+    permission_classes = []
+
+    def get(self, request, pk):
+        from django.utils import timezone
+        now = timezone.now()
         try:
-            campagne = Campagne.objects.get(pk=pk)
+            obj = Campagne.objects.select_related('cohorte__formation').get(
+                pk=pk,
+                statut='OUVERTE',
+                publiee=True,
+                dateOuverture__lte=now,
+                dateCloture__gte=now
+            )
         except Campagne.DoesNotExist:
-            return Response({"detail": "Campagne introuvable."}, status=status.HTTP_404_NOT_FOUND)
-        campagne.archiver()
-        return Response({"detail": f"La campagne « {campagne.nom} » a été archivée."})
+            return Response({"detail": "Cette campagne de recrutement n'est pas accessible ou est fermée."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CampagneDetailSerializer(obj).data)
+
+
