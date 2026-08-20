@@ -37,7 +37,7 @@ class EtapeInlineSerializer(serializers.ModelSerializer):
 
 class CohorteSerializer(serializers.ModelSerializer):
     formation_nom = serializers.SerializerMethodField()
-    etapes = EtapeInlineSerializer(many=True, read_only=True)
+    etapes = serializers.SerializerMethodField()
 
     class Meta:
         model = Cohorte
@@ -45,6 +45,15 @@ class CohorteSerializer(serializers.ModelSerializer):
 
     def get_formation_nom(self, obj):
         return obj.formation.nom if obj.formation else None
+
+    def get_etapes(self, obj):
+        if not obj.etapes.exists():
+            Etape.objects.bulk_create([
+                Etape(cohorte=obj, nom="Réunion d'information", ordre=1),
+                Etape(cohorte=obj, nom='Entretien technique et motivation', ordre=2),
+                Etape(cohorte=obj, nom='Entretien final', ordre=3),
+            ])
+        return EtapeInlineSerializer(obj.etapes.all(), many=True).data
 
     def validate(self, data):
         debut = data.get('dateDebut')

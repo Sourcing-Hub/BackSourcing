@@ -230,13 +230,29 @@ class EncadrantsPlanningView(APIView):
 
     def get(self, request):
         encadrants = Utilisateur.objects.select_related('role').filter(
-            role__nom__in=[NomRole.EVALUATEUR, NomRole.EQUIPE_PEDAGOGIQUE], compteActive=True
+            is_active=True
+        ).exclude(
+            role__nom=NomRole.CANDIDAT
         ).order_by('first_name', 'last_name')
-        return Response([
-            {'id': user.id, 'nomComplet': user.get_full_name() or user.email, 'role': user.role.nom}
-            for user in encadrants
-        ])
+        
+        result = []
+        for user in encadrants:
+            nom_complet = f"{user.first_name} {user.last_name}".strip()
+            if not nom_complet:
+                local_part = user.email.split('@')[0]
+                parts = local_part.replace('_', '.').replace('-', '.').split('.')
+                nom_complet = ' '.join(p.capitalize() for p in parts if p)
+            result.append({
+                'id': user.id,
+                'prenom': user.first_name,
+                'nom': user.last_name,
+                'nomComplet': nom_complet,
+                'role': user.role.nom if user.role else 'Sans rôle',
+            })
+        return Response(result)
 
+
+from django.db.models import Q
 
 def get_eligibilite_convocation(candidature, session, participations):
     """Retourne l'éligibilité d'une candidature au créneau demandé."""
@@ -247,7 +263,7 @@ def get_eligibilite_convocation(candidature, session, participations):
         ordre__lt=etape_cible.ordre,
     )
 
-    if participation_cible and hasattr(participation_cible, 'affectation_session'):
+    if participation_cible and getattr(participation_cible, 'affectation_session', None) is not None:
         return False, 'Déjà convoqué pour un créneau.', participation_cible
     if participation_cible and participation_cible.statut != StatutEtape.EN_ATTENTE:
         return False, 'Cette étape est déjà en cours ou terminée.', participation_cible
@@ -273,12 +289,17 @@ class ConvocationCandidatsView(APIView):
             Session.objects.select_related('etape__cohorte__formation'),
             pk=planning_id,
         )
+        
+        candidatures_filter = Q(campagne__cohorte=session.etape.cohorte)
+        if session.etape.cohorte and session.etape.cohorte.formation:
+            candidatures_filter |= Q(campagne__cohorte__formation=session.etape.cohorte.formation)
+
         candidatures = list(Candidature.objects.filter(
-            campagne__cohorte=session.etape.cohorte,
-        ).select_related('utilisateur').order_by('utilisateur__last_name', 'utilisateur__first_name'))
+            candidatures_filter,
+        ).distinct().select_related('utilisateur', 'campagne', 'campagne__cohorte').order_by('utilisateur__last_name', 'utilisateur__first_name'))
+        
         participations = ParticipationEtape.objects.filter(
             candidature__in=candidatures,
-            etape__cohorte=session.etape.cohorte,
         ).select_related('etape', 'affectation_session')
         participations_par_candidature = {}
         for participation in participations:
@@ -291,10 +312,11 @@ class ConvocationCandidatsView(APIView):
                 session,
                 participations_par_candidature.get(candidature.id, {}),
             )
+            nom_candidat = f'{candidature.utilisateur.first_name} {candidature.utilisateur.last_name}'.strip() or candidature.utilisateur.get_full_name() or candidature.utilisateur.email
             candidats.append({
                 'id': candidature.id,
                 'numero': candidature.numero,
-                'nom': f'{candidature.utilisateur.first_name} {candidature.utilisateur.last_name}'.strip(),
+                'nom': nom_candidat,
                 'email': candidature.utilisateur.email,
                 'telephone': candidature.utilisateur.telephone,
                 'eligible': eligible,
@@ -326,17 +348,21 @@ class ConvocationAffectationView(APIView):
             )
 
         session = get_object_or_404(
-            Session.objects.select_for_update().select_related('etape__cohorte'),
+            Session.objects.select_for_update().select_related('etape__cohorte__formation'),
             pk=planning_id,
         )
         candidature_ids = list(dict.fromkeys(candidature_ids))
+        
+        candidatures_filter = Q(id__in=candidature_ids) & (
+            Q(campagne__cohorte=session.etape.cohorte) |
+            Q(campagne__cohorte__formation=session.etape.cohorte.formation)
+        )
         candidatures = list(Candidature.objects.filter(
-            id__in=candidature_ids,
-            campagne__cohorte=session.etape.cohorte,
-        ).select_related('utilisateur'))
+            candidatures_filter,
+        ).distinct().select_related('utilisateur'))
         if len(candidatures) != len(candidature_ids):
             return Response(
-                {'detail': 'Un ou plusieurs candidats ne correspondent pas à la promo de ce planning.'},
+                {'detail': 'Un ou plusieurs candidats ne correspondent pas à la promo ou formation de ce planning.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -354,7 +380,6 @@ class ConvocationAffectationView(APIView):
                 participation.etape_id: participation
                 for participation in ParticipationEtape.objects.filter(
                     candidature=candidature,
-                    etape__cohorte=session.etape.cohorte,
                 ).select_related('affectation_session')
             }
             eligible, raison, participation = get_eligibilite_convocation(candidature, session, participations)
@@ -461,7 +486,7 @@ class EmargementSessionsView(APIView):
     permission_classes = [EstAdminOuPedagogie]
 
     def get(self, request):
-        sessions = Session.objects.filter(affectations_candidats__isnull=False).select_related(
+        sessions = Session.objects.select_related(
             'etape__cohorte__formation'
         ).distinct().order_by('-date', 'heureDebut')
         data = []
