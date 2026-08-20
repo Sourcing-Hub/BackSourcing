@@ -14,7 +14,7 @@ from utilisateurs.models import Utilisateur, NomRole
 from candidatures.models import Candidature
 from .models import (
     AffectationCandidat, AffectationEvaluateur, Etape, Evaluation, ParticipationEtape,
-    Question, Session, StatutEtape, StatutPresence, TypeQuestion,
+    Question, Session, StatutEtape, StatutPresence, TypeDecision, TypeQuestion,Decision
 )
 from .serializers import ParticipationEtapeSerializer, PlanningConfigurationSerializer, PlanningSerializer, QuestionSerializer
 from utilisateurs.permissions import EstAdminOuGestionProjet, EstAdminOuPedagogie, EstEvaluateur
@@ -217,6 +217,13 @@ def get_eligibilite_convocation(candidature, session, participations):
     """Retourne l'éligibilité d'une candidature au créneau demandé."""
     etape_cible = session.etape
     participation_cible = participations.get(etape_cible.id)
+    decision_type = getattr(getattr(candidature, 'decision_finale', None), 'type', None)
+
+    if decision_type == TypeDecision.REFUSE:
+        return False, 'Cette candidature est refusée et ne peut plus être convoquée.', participation_cible
+    if etape_cible.ordre >= 3 and decision_type != TypeDecision.ADMIS:
+        return False, 'Le candidat doit être admis avant une convocation à l’entretien final.', participation_cible
+
     etapes_precedentes = Etape.objects.filter(
         cohorte=etape_cible.cohorte,
         ordre__lt=etape_cible.ordre,
@@ -255,7 +262,12 @@ class ConvocationCandidatsView(APIView):
 
         candidatures = list(Candidature.objects.filter(
             candidatures_filter,
-        ).distinct().select_related('utilisateur', 'campagne', 'campagne__cohorte').order_by('utilisateur__last_name', 'utilisateur__first_name'))
+        ).distinct().select_related(
+            'utilisateur',
+            'campagne',
+            'campagne__cohorte',
+            'decision_finale',
+        ).order_by('utilisateur__last_name', 'utilisateur__first_name'))
         
         participations = ParticipationEtape.objects.filter(
             candidature__in=candidatures,
@@ -678,6 +690,116 @@ ROLE_LABELS = {
 }
 
 
+def get_candidate_type_summary(candidature, question_type):
+    questions = Question.objects.filter(
+        cohorte=candidature.campagne.cohorte,
+        type=question_type,
+    )
+    evaluations = Evaluation.objects.filter(
+        participation__candidature=candidature,
+        question__type=question_type,
+    )
+    validated = evaluations.filter(validee=True)
+    required_count = questions.count()
+    validated_count = validated.count()
+
+    if required_count and validated_count >= required_count:
+        status_value = 'completed'
+    elif evaluations.exists():
+        status_value = 'progress'
+    else:
+        status_value = 'En-attente'
+
+    total = sum((item.note for item in validated), Decimal('0'))
+    average = (total / validated_count) if validated_count else None
+
+    return {
+        'status': status_value,
+        'statusLabel': 'Terminé' if status_value == 'completed' else ('En cours' if status_value == 'progress' else 'En-attente'),
+        'averageScore': float(average) if average is not None else None,
+        'validated': status_value == 'completed',
+    }
+
+
+def get_candidate_evaluation_overview(candidature):
+    technique = get_candidate_type_summary(candidature, TypeQuestion.TECHNIQUE)
+    motivation = get_candidate_type_summary(candidature, TypeQuestion.SOFT_SKILLS_MOTIVATION)
+    averages = [
+        item['averageScore']
+        for item in (technique, motivation)
+        if item['averageScore'] is not None
+    ]
+    general_average = sum(averages) / len(averages) if averages else None
+    can_decide = technique['validated'] and motivation['validated']
+
+    return technique, motivation, general_average, can_decide
+
+
+def serialize_pedagogical_candidate(candidature):
+    utilisateur = candidature.utilisateur
+    cohorte = candidature.campagne.cohorte if candidature.campagne else None
+    formation = cohorte.formation if cohorte else None
+    technique, motivation, general_average, can_decide = get_candidate_evaluation_overview(candidature)
+    decision = getattr(candidature, 'decision_finale', None)
+    affectation = AffectationCandidat.objects.filter(
+        participation_etape__candidature=candidature,
+    ).select_related('session__etape').order_by('-session__date', '-session__heureDebut').first()
+
+    return {
+        'id': str(candidature.id),
+        'candidatureId': str(candidature.id),
+        'candidateId': str(utilisateur.id),
+        'numero': candidature.numero,
+        'nom': utilisateur.get_full_name() or utilisateur.email,
+        'prenom': utilisateur.first_name,
+        'nomFamille': utilisateur.last_name,
+        'email': utilisateur.email,
+        'telephone': utilisateur.telephone,
+        'formation': formation.nom if formation else '',
+        'cohorte': cohorte.nom if cohorte else '',
+        'statutCandidature': candidature.statut,
+        'statutPresence': affectation.statutPresence if affectation else '',
+        'statutEtape': affectation.participation_etape.statut if affectation else '',
+        'etape': affectation.session.etape.nom if affectation else '',
+        'date': affectation.session.date if affectation else '',
+        'heureDebut': affectation.session.heureDebut if affectation else '',
+        'heureFin': affectation.session.heureFin if affectation else '',
+        'lieu': (affectation.session.lieu or affectation.session.localisation) if affectation else '',
+        'technique': technique,
+        'motivation': motivation,
+        'final': {},
+        'moyenneGenerale': round(general_average, 2) if general_average is not None else None,
+        'canDecide': can_decide,
+        'decision': {
+            'id': str(decision.id),
+            'type': decision.type,
+            'motif': decision.motif,
+        } if decision else None,
+    }
+
+
+class InterviewCandidatesView(APIView):
+    permission_classes = [EstAdminOuPedagogie]
+
+    def get(self, request, candidature_id=None):
+        queryset = Candidature.objects.filter(
+            participations__affectation_session__isnull=False,
+        ).distinct().select_related(
+            'utilisateur',
+            'campagne__cohorte__formation',
+            'decision_finale',
+        ).order_by('utilisateur__last_name', 'utilisateur__first_name')
+
+        if candidature_id:
+            candidature = get_object_or_404(queryset, pk=candidature_id)
+            return Response(serialize_pedagogical_candidate(candidature))
+
+        return Response([
+            serialize_pedagogical_candidate(candidature)
+            for candidature in queryset
+        ])
+
+
 def build_interview_id(affectation, role):
     return f'{affectation.id}:{role.lower()}'
 
@@ -758,6 +880,8 @@ def serialize_candidate_from_candidature(candidature):
         'phone': utilisateur.telephone,
         'formation': formation.nom if formation else '',
         'promotion': cohorte.nom if cohorte else '',
+        'campagneId': candidature.campagne.id if candidature.campagne else '',
+        'campagneName': candidature.campagne.nom if candidature.campagne else '',
         'candidatureId': candidature.id,
         'numero': candidature.numero,
         'statut': candidature.statut,
@@ -808,6 +932,9 @@ def serialize_interview(affectation, role):
         'id': build_interview_id(affectation, role),
         'candidateId': utilisateur.id,
         'candidateName': utilisateur.get_full_name() or utilisateur.email,
+        'candidateEmail': utilisateur.email,
+        'campagneId': candidature.campagne.id if candidature.campagne else '',
+        'campagneName': candidature.campagne.nom if candidature.campagne else '',
         'type': 'motivation' if role == AffectationEvaluateur.RoleEncadrement.MOTIVATION else 'technique',
         'typeLabel': ROLE_LABELS[role],
         'date': affectation.session.date,
@@ -991,3 +1118,79 @@ class EvaluatorEvaluationValidateView(APIView):
         Evaluation.objects.filter(id__in=[evaluation.id for evaluation in evaluations]).update(validee=True)
         mark_candidate_finished_if_all_interviews_done(affectation.participation_etape)
         return Response({'evaluation': serialize_evaluation_sheet(affectation, role)})
+
+
+class DecisionCandidatureView(APIView):
+    permission_classes = [EstAdminOuPedagogie]
+
+    def post(self, request, candidature_id):
+
+        try:
+            candidature = Candidature.objects.select_related(
+                'utilisateur',
+                'campagne__cohorte__formation',
+                'decision_finale',
+            ).get(
+                id=candidature_id
+            )
+
+        except Candidature.DoesNotExist:
+
+            return Response(
+                {
+                    'detail': 'Candidature introuvable.'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        decision_type = request.data.get('decision')
+
+        decisions_valides = [
+            TypeDecision.ADMIS,
+            TypeDecision.REFUSE,
+            TypeDecision.EN_ATTENTE,
+        ]
+
+        if decision_type not in decisions_valides:
+
+            return Response(
+                {
+                    'detail': 'Décision invalide.',
+                    'decisions_valides': decisions_valides
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        _, _, _, can_decide = get_candidate_evaluation_overview(candidature)
+        if not can_decide:
+            return Response(
+                {
+                    'detail': 'Les deux entretiens doivent être terminés avant de prendre une décision.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        decision, created = Decision.objects.update_or_create(
+
+            candidature=candidature,
+
+            defaults={
+                'type': decision_type,
+                'motif': request.data.get('motif', '')
+            }
+
+        )
+
+        return Response(
+            {
+                'message': 'Décision enregistrée avec succès.',
+                'decision': {
+                    'id': str(decision.id),
+                    'type': decision.type,
+                    'motif': decision.motif,
+                    'candidature': str(candidature.id),
+                }
+            },
+            status=status.HTTP_201_CREATED if created
+            else status.HTTP_200_OK
+        )
