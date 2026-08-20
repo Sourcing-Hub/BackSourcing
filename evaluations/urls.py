@@ -6,9 +6,10 @@ from .views import (
     EmargementSessionsView, EmargementSessionDetailView, EmargementPresenceView, EmargementQrView,
     EmargementCloturerView, ConfirmationPresenceView,
     QuestionListeView, QuestionDetailView,
+    InterviewCandidatesView,
     EvaluatorCandidatesView, EvaluatorCandidateDetailView,
     EvaluatorInterviewsView, EvaluatorInterviewDetailView,
-    EvaluatorEvaluationView, EvaluatorEvaluationValidateView,
+    EvaluatorEvaluationView, EvaluatorEvaluationValidateView,DecisionCandidatureView
 )
 
 urlpatterns = [
@@ -21,6 +22,8 @@ urlpatterns = [
     path('convocations/affecter/', ConvocationAffectationView.as_view(), name='convocations-affecter'),
     path('questions/', QuestionListeView.as_view(), name='questions-liste'),
     path('questions/<uuid:pk>/', QuestionDetailView.as_view(), name='questions-detail'),
+    path('entretiens/candidats/', InterviewCandidatesView.as_view(), name='entretiens-candidats'),
+    path('entretiens/candidats/<uuid:candidature_id>/', InterviewCandidatesView.as_view(), name='entretiens-candidats-detail'),
     path('evaluator/candidates/', EvaluatorCandidatesView.as_view(), name='evaluator-candidates'),
     path('evaluator/candidates/<uuid:candidate_id>/', EvaluatorCandidateDetailView.as_view(), name='evaluator-candidate-detail'),
     path('evaluator/interviews/', EvaluatorInterviewsView.as_view(), name='evaluator-interviews'),
@@ -34,4 +37,9 @@ urlpatterns = [
     path('emargement/qr/<uuid:token>/', EmargementQrView.as_view(), name='emargement-qr'),
     path('confirmation-presence/<uuid:token>/', ConfirmationPresenceView.as_view(), name='confirmation-presence'),
     path('plannings/<uuid:pk>/', PlanningDetailView.as_view(), name='plannings-detail'),
+    path(
+    'candidatures/<uuid:candidature_id>/decision/',
+    DecisionCandidatureView.as_view(),
+    name='candidature-decision'
+),
 ]

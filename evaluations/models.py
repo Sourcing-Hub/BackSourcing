@@ -18,8 +18,9 @@ class StatutPresence(models.TextChoices):
     ABSENT = 'ABSENT', 'Absent'
 
 class TypeDecision(models.TextChoices):
-    ADMISSION = 'ADMISSION', 'Admission'
-    NON_ADMISSION = 'NON_ADMISSION', 'Non admission'
+    ADMIS = 'ADMIS', 'Admis'
+    REFUSE = 'REFUSE', 'Refusé'
+    EN_ATTENTE = 'EN_ATTENTE', 'En attente'
 
 class TypeQuestion(models.TextChoices):
     TECHNIQUE = 'TECHNIQUE', 'Technique'

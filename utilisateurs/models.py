@@ -26,7 +26,7 @@ class NomRole:
     CANDIDAT = 'Candidat'
     ADMINISTRATEUR = 'Administrateur'
     EVALUATEUR = 'evaluateur'
-    EQUIPE_PEDAGOGIQUE = 'Equipe Pedagogique'
+    EQUIPE_PEDAGOGIQUE = 'equipe pedagogique'
     EQUIPE_GESTION_PROJET = 'Équipe Gestion de Projet'
 
     TOUS = [
