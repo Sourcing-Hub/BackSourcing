@@ -19,6 +19,16 @@ class ConnexionTokenSerializer(TokenObtainPairSerializer):
     Surcharge du serializer JWT pour injecter le rôle de l'utilisateur
     dans le payload du token.
     """
+    username = serializers.CharField(required=False, allow_blank=True)
+    email = serializers.EmailField(required=False, allow_blank=True)
+    password = serializers.CharField(write_only=True)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['username'].required = False
+        self.fields['username'].allow_blank = True
+        self.fields['email'] = serializers.EmailField(required=False, allow_blank=True)
+
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
@@ -30,9 +40,11 @@ class ConnexionTokenSerializer(TokenObtainPairSerializer):
         return token
 
     def validate(self, attrs):
-        # Django utilise 'username' par défaut, on réalise l'auth via email
+        # Accepte les deux formats: {username, password} et {email, password}.
         email = attrs.get('username') or attrs.get('email', '')
         password = attrs.get('password', '')
+        if not email:
+            raise serializers.ValidationError({"email": "L'email est obligatoire."})
 
         try:
             utilisateur = Utilisateur.objects.get(email=email)

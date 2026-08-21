@@ -25,8 +25,8 @@ class StatutUtilisateur(models.TextChoices):
 class NomRole:
     CANDIDAT = 'Candidat'
     ADMINISTRATEUR = 'Administrateur'
-    EVALUATEUR = 'Évaluateur'
-    EQUIPE_PEDAGOGIQUE = 'Équipe Pédagogique'
+    EVALUATEUR = 'evaluateur'
+    EQUIPE_PEDAGOGIQUE = 'equipe pedagogique'
     EQUIPE_GESTION_PROJET = 'Équipe Gestion de Projet'
 
     TOUS = [
