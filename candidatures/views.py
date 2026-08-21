@@ -255,7 +255,21 @@ class CandidatureSoumissionView(APIView):
                 valeur=valeur
             )
 
-        # 7. Envoyer le mail d'activation si l'utilisateur vient d'être créé
+        # 7. Si le compte du candidat est déjà actif, valider l'Étape 1 (Candidature)
+        if user.compteActive and campagne.cohorte:
+            from evaluations.models import Etape, ParticipationEtape, StatutEtape
+            from django.utils import timezone
+            etape1 = Etape.objects.filter(
+                cohorte=campagne.cohorte
+            ).filter(Q(ordre=1) | Q(nom__icontains='candidature')).first()
+            if etape1:
+                ParticipationEtape.objects.get_or_create(
+                    candidature=candidature,
+                    etape=etape1,
+                    defaults={'statut': StatutEtape.REUSSIE, 'dateSortie': timezone.now()}
+                )
+
+        # 8. Envoyer le mail d'activation si l'utilisateur vient d'être créé
         if not (request.user and request.user.is_authenticated):
             try:
                 envoyer_email_activation_candidat(user)

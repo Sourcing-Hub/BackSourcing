@@ -227,6 +227,10 @@ def get_eligibilite_convocation(candidature, session, participations):
     participation_cible = participations.get(etape_cible.id)
     decision_type = getattr(getattr(candidature, 'decision_finale', None), 'type', None)
 
+    # 1. Vérifier que le compte du candidat a bien été activé
+    if not candidature.utilisateur.compteActive:
+        return False, "Le compte du candidat n'a pas encore été activé.", participation_cible
+
     if decision_type == TypeDecision.REFUSE:
         return False, 'Cette candidature est refusée et ne peut plus être convoquée.', participation_cible
     if etape_cible.ordre >= 3 and decision_type != TypeDecision.ADMIS:
@@ -241,12 +245,26 @@ def get_eligibilite_convocation(candidature, session, participations):
         return False, 'Déjà convoqué pour un créneau.', participation_cible
     if participation_cible and participation_cible.statut != StatutEtape.EN_ATTENTE:
         return False, 'Cette étape est déjà en cours ou terminée.', participation_cible
-    if etape_cible.ordre > 1 and any(
-        participations.get(etape.id, None) is None
-        or participations[etape.id].statut != StatutEtape.REUSSIE
-        for etape in etapes_precedentes
-    ):
-        return False, 'Les étapes précédentes ne sont pas encore validées.', participation_cible
+
+    for etape in etapes_precedentes:
+        part = participations.get(etape.id)
+        # Si c'est l'étape 1 (Candidature / Dépôt du dossier), l'activation du compte valide cette étape
+        if etape.ordre == 1 or 'candidature' in etape.nom.lower():
+            if not part:
+                part, _ = ParticipationEtape.objects.get_or_create(
+                    candidature=candidature,
+                    etape=etape,
+                    defaults={'statut': StatutEtape.REUSSIE, 'dateSortie': candidature.dateSoumission or timezone.now()}
+                )
+                participations[etape.id] = part
+            elif part.statut != StatutEtape.REUSSIE:
+                part.statut = StatutEtape.REUSSIE
+                part.dateSortie = candidature.dateSoumission or timezone.now()
+                part.save(update_fields=['statut', 'dateSortie'])
+
+        if not part or part.statut != StatutEtape.REUSSIE:
+            return False, 'Les étapes précédentes ne sont pas encore validées.', participation_cible
+
     return True, '', participation_cible
 
 

@@ -97,8 +97,32 @@ class ActivationCompteSerializer(serializers.Serializer):
         return data
 
     def save(self):
+        from django.utils import timezone
+        from candidatures.models import Candidature
+        from evaluations.models import Etape, ParticipationEtape, StatutEtape
+        from django.db.models import Q
+
         utilisateur = self.validated_data['utilisateur']
         utilisateur.activer_compte(self.validated_data['mot_de_passe'])
+
+        # Initialiser / Valider l'Étape 1 (Candidature) pour les candidatures de ce candidat
+        candidatures = Candidature.objects.filter(utilisateur=utilisateur)
+        for cand in candidatures:
+            if cand.campagne and cand.campagne.cohorte:
+                etape1 = Etape.objects.filter(
+                    cohorte=cand.campagne.cohorte
+                ).filter(Q(ordre=1) | Q(nom__icontains='candidature')).first()
+                if etape1:
+                    part, created = ParticipationEtape.objects.get_or_create(
+                        candidature=cand,
+                        etape=etape1,
+                        defaults={'statut': StatutEtape.REUSSIE, 'dateSortie': cand.dateSoumission or timezone.now()}
+                    )
+                    if not created and part.statut != StatutEtape.REUSSIE:
+                        part.statut = StatutEtape.REUSSIE
+                        part.dateSortie = cand.dateSoumission or timezone.now()
+                        part.save(update_fields=['statut', 'dateSortie'])
+
         return utilisateur
 
 
