@@ -120,7 +120,7 @@ def get_sourcing_live_context(user):
 
 def generate_local_fallback_response(question: str, context: dict) -> str:
     """
-    Fournit une réponse locale intelligente et formatée en Markdown
+    Fournit une réponse locale intelligente et formatée en Markdown sans emojis
     lorsque l'API LLM distante n'est pas disponible ou qu'aucune clé API n'est configurée.
     """
     q_lower = question.lower()
@@ -135,38 +135,38 @@ def generate_local_fallback_response(question: str, context: dict) -> str:
             for c in campagnes["liste_ouvertes"]:
                 lines.append(f"- **{c['nom']}** ({c['formation']} - {c['cohorte']}) : clôture le {c['cloture']} avec **{c['candidatures_recues']} candidature(s)**.")
             return "\n".join(lines)
-        return "Il n'y a actuellement aucune campagne ouverte. Vous pouvez en configurer une nouvelle depuis la section **Campagnes**."
+        return "Il n'y a actuellement aucune campagne ouverte. Vous pouvez en configurer une nouvelle depuis la section Campagnes."
 
     if any(word in q_lower for word in ["candidat", "candidature", "dossier", "postulant"]):
         return (
-            f"📊 **Statistiques des candidatures SourcingHub** :\n\n"
+            f"**Statistiques des candidatures SourcingHub** :\n\n"
             f"- **Total des dossiers :** {candidatures['total']}\n"
-            f"- ⏳ **En attente de traitement :** {candidatures['en_attente']}\n"
-            f"- 🔄 **En cours d'évaluation :** {candidatures['en_cours']}\n"
-            f"- ✅ **Finalisées / Terminées :** {candidatures['terminees']}\n\n"
-            f"Vous pouvez consulter la liste complète et filtrer les dossiers dans l'onglet **Candidatures**."
+            f"- **En attente de traitement :** {candidatures['en_attente']}\n"
+            f"- **En cours d'évaluation :** {candidatures['en_cours']}\n"
+            f"- **Finalisées / Terminées :** {candidatures['terminees']}\n\n"
+            f"Vous pouvez consulter la liste complète et filtrer les dossiers dans l'onglet Candidatures."
         )
 
     if any(word in q_lower for word in ["entretien", "session", "planning", "emargement", "présence", "date"]):
         return (
-            f"📅 **Planification des sessions et entretiens** :\n\n"
+            f"**Planification des sessions et entretiens** :\n\n"
             f"- **Sessions aujourd'hui :** {sessions['sessions_aujourdhui']}\n"
             f"- **Sessions à venir :** {sessions['sessions_a_venir']}\n"
             f"- **Total des sessions créées :** {sessions['total_sessions']}\n\n"
-            f"Rendez-vous dans la rubrique **Planification** ou **Mes entretiens** pour gérer les horaires et l'émargement QR Code."
+            f"Rendez-vous dans la rubrique Planification ou Mes entretiens pour gérer les horaires et l'émargement QR Code."
         )
 
     # Réponse générale / d'ensemble
     return (
-        f"👋 Bonjour **{context['demandeur']['nom_complet']}** !\n\n"
-        f"Voici l'état en direct de votre plateforme **SourcingHub** au {context['date_du_jour']} :\n\n"
+        f"Bonjour **{context['demandeur']['nom_complet']}**,\n\n"
+        f"Voici l'état en direct de votre plateforme SourcingHub au {context['date_du_jour']} :\n\n"
         f"| Métrique | Valeur |\n"
         f"| :--- | :--- |\n"
-        f"| 📣 **Campagnes actives** | **{campagnes['ouvertes']}** (sur {campagnes['total']} totales) |\n"
-        f"| 👥 **Candidatures en cours** | **{candidatures['en_cours']}** (sur {candidatures['total']} reçues) |\n"
-        f"| 📅 **Entretiens / Sessions à venir** | **{sessions['sessions_a_venir']}** |\n"
-        f"| 🎓 **Formations enregistrées** | **{stats['formations_totales']}** |\n\n"
-        f"💬 *N'hésitez pas à poser une question précise sur les campagnes, les statistiques de recrutement ou vos sessions.*"
+        f"| Campagnes actives | **{campagnes['ouvertes']}** (sur {campagnes['total']} totales) |\n"
+        f"| Candidatures en cours | **{candidatures['en_cours']}** (sur {candidatures['total']} reçues) |\n"
+        f"| Entretiens / Sessions à venir | **{sessions['sessions_a_venir']}** |\n"
+        f"| Formations enregistrées | **{stats['formations_totales']}** |\n\n"
+        f"*Vous pouvez poser une question précise sur les campagnes, les statistiques de recrutement ou vos sessions.*"
     )
 
 
@@ -207,8 +207,9 @@ class SourcingChatView(APIView):
         # 3. Construction du prompt système enrichi
         system_prompt = (
             "Tu es SourcingChat, l'assistant IA officiel de SourcingHub, la plateforme de sourcing et recrutement de talents Simplon.\n"
-            "Tu réponds toujours en français, avec un ton professionnel, clair, bienveillant et structuré.\n"
-            "Utilise la mise en forme Markdown (titres, listes à puces, texte en gras, tableaux si pertinent).\n"
+            "Tu réponds toujours en français, avec un ton professionnel, sobre, clair et structuré.\n"
+            "RÈGLE STRICTE ET OBLIGATOIRE : N'utilise ABSOLUMENT AUCUN emoji (aucun pictogramme, aucun smiley, aucun symbole graphique). Reste 100% textuel.\n"
+            "Utilise la mise en forme Markdown standard (titres, listes à puces, texte en gras, tableaux si pertinent).\n"
             "Tu as accès aux données exactes et en temps réel de la plateforme fournies ci-dessous.\n"
             "Base tes réponses prioritairement sur ces données et conseille efficacement l'utilisateur."
         )
