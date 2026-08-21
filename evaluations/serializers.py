@@ -2,10 +2,10 @@ from rest_framework import serializers
 from django.db import transaction
 from utilisateurs.models import Utilisateur, NomRole
 from .models import (
-    AffectationEvaluateur, Etape, ParticipationEtape, Session,
+    AffectationEvaluateur, Etape, ParticipationEtape, Question, Session,
     TestQCM, QuestionQCM, OptionQCM, PassageTestQCM, ReponseCandidatQCM, StatutPassageTest
 )
-from .models import AffectationEvaluateur, Etape, ParticipationEtape, Question, Session
+
 
 class EtapeSerializer(serializers.ModelSerializer):
     """Sérialiseur pour la consultation des étapes d'évaluation."""

@@ -15,21 +15,18 @@ from decimal import Decimal, InvalidOperation
 from utilisateurs.models import Utilisateur, NomRole
 from candidatures.models import Candidature
 from .models import (
-    AffectationCandidat, Etape, ParticipationEtape, Session, StatutEtape, StatutPresence,
+    AffectationCandidat, AffectationEvaluateur, Etape, Evaluation, ParticipationEtape,
+    Question, Session, StatutEtape, StatutPresence, TypeDecision, TypeQuestion, Decision,
     TestQCM, QuestionQCM, OptionQCM, PassageTestQCM, ReponseCandidatQCM, StatutPassageTest, TypeChoixQCM
 )
 from .serializers import (
     ParticipationEtapeSerializer, PlanningConfigurationSerializer, PlanningSerializer,
-    TestQCMSerializer, TestCandidatQCMSerializer, SoumissionTestQCMSerializer
+    QuestionSerializer, TestQCMSerializer, TestCandidatQCMSerializer, SoumissionTestQCMSerializer
 )
-from utilisateurs.permissions import EstAdminOuGestionProjet, EstAdminOuPedagogie
-    AffectationCandidat, AffectationEvaluateur, Etape, Evaluation, ParticipationEtape,
-    Question, Session, StatutEtape, StatutPresence, TypeDecision, TypeQuestion,Decision
-)
-from .serializers import ParticipationEtapeSerializer, PlanningConfigurationSerializer, PlanningSerializer, QuestionSerializer
 from utilisateurs.permissions import EstAdminOuGestionProjet, EstAdminOuPedagogie, EstEvaluateur
-from candidatures.models import StatutCandidature
+from candidatures.models import Candidature, StatutCandidature
 from notifications.models import Notification, StatutNotification, TypeNotification
+
 
 
 class IsStaffOrAdmin(IsAuthenticated):
@@ -928,8 +925,6 @@ class CandidateSubmitTestView(APIView):
             "etapeSuivanteCreee": etape_suivante_creee
         })
 
-
-        return Response({'detail': 'Présence confirmée.'})
 
 
 class QuestionListeView(APIView):
