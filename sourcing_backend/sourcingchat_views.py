@@ -240,7 +240,7 @@ class SourcingChatView(APIView):
                     "https://openrouter.ai/api/v1/chat/completions",
                     json=payload,
                     headers=headers,
-                    timeout=12
+                    timeout=25
                 )
             elif openai_key:
                 headers["Authorization"] = f"Bearer {openai_key}"
@@ -249,7 +249,7 @@ class SourcingChatView(APIView):
                     "https://api.openai.com/v1/chat/completions",
                     json=payload,
                     headers=headers,
-                    timeout=12
+                    timeout=25
                 )
             elif gemini_key:
                 headers["Authorization"] = f"Bearer {gemini_key}"
@@ -258,7 +258,7 @@ class SourcingChatView(APIView):
                     "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
                     json=payload,
                     headers=headers,
-                    timeout=12
+                    timeout=25
                 )
 
             if res.status_code == 200:
