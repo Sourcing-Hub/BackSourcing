@@ -1,3 +1,5 @@
+from rest_framework import viewsets
+from rest_framework.decorators import action
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -10,11 +12,18 @@ from django.core.mail import EmailMessage, send_mail
 
 from utilisateurs.models import Utilisateur, NomRole
 from candidatures.models import Candidature
-from .models import AffectationCandidat, Etape, ParticipationEtape, Session, StatutEtape, StatutPresence
-from .serializers import ParticipationEtapeSerializer, PlanningConfigurationSerializer, PlanningSerializer
+from .models import (
+    AffectationCandidat, Etape, ParticipationEtape, Session, StatutEtape, StatutPresence,
+    TestQCM, QuestionQCM, OptionQCM, PassageTestQCM, ReponseCandidatQCM, StatutPassageTest, TypeChoixQCM
+)
+from .serializers import (
+    ParticipationEtapeSerializer, PlanningConfigurationSerializer, PlanningSerializer,
+    TestQCMSerializer, TestCandidatQCMSerializer, SoumissionTestQCMSerializer
+)
 from utilisateurs.permissions import EstAdminOuGestionProjet, EstAdminOuPedagogie
 from candidatures.models import StatutCandidature
 from notifications.models import Notification, StatutNotification, TypeNotification
+
 
 class IsStaffOrAdmin(IsAuthenticated):
     """Permission permettant l'accès aux membres Admin, Pédagogie et Gestion de Projet."""
@@ -589,24 +598,315 @@ class EmargementCloturerView(APIView):
 
 
 class ConfirmationPresenceView(APIView):
-    """Page publique utilisée par le lien envoyé après le pointage."""
+    """Page publique utilisée par le lien envoyé après le pointage / clôture pour valider le souhait de continuer le parcours."""
     permission_classes = []
     authentication_classes = []
 
     def get(self, request, token):
         affectation = get_object_or_404(AffectationCandidat.objects.select_related(
-            'session__etape', 'participation_etape__candidature__utilisateur'
+            'session__etape__cohorte', 'participation_etape__candidature__utilisateur'
         ), tokenConfirmation=token, statutPresence=StatutPresence.PRESENT)
+        
+        candidature = affectation.participation_etape.candidature
+        
         return Response({
-            'nom': affectation.participation_etape.candidature.utilisateur.get_full_name(),
+            'nom': candidature.utilisateur.get_full_name() or candidature.utilisateur.email,
             'etapeNom': affectation.session.etape.nom,
             'date': affectation.session.date,
             'confirmee': bool(affectation.dateConfirmation),
+            'statutCandidature': candidature.statut,
         })
 
+    @transaction.atomic
     def post(self, request, token):
-        affectation = get_object_or_404(AffectationCandidat.objects.select_for_update(), tokenConfirmation=token, statutPresence=StatutPresence.PRESENT)
+        affectation = get_object_or_404(
+            AffectationCandidat.objects.select_for_update().select_related('session__etape__cohorte', 'participation_etape__candidature'),
+            tokenConfirmation=token,
+            statutPresence=StatutPresence.PRESENT
+        )
+        
+        continuer = request.data.get('continuer', True)
+        participation = affectation.participation_etape
+        candidature = participation.candidature
+
         if not affectation.dateConfirmation:
             affectation.dateConfirmation = timezone.now()
             affectation.save(update_fields=['dateConfirmation'])
-        return Response({'detail': 'Présence confirmée.'})
+
+        if continuer:
+            # Valider l'étape 2 (Réunion d'information)
+            participation.statut = StatutEtape.REUSSIE
+            participation.dateSortie = timezone.now()
+            participation.save(update_fields=['statut', 'dateSortie'])
+
+            # Créer automatiquement la participation à l'Étape 3 (Test) pour ce candidat qui souhaite continuer !
+            etapes_cohorte = list(Etape.objects.filter(cohorte=affectation.session.etape.cohorte).order_by('ordre'))
+            etape_test = next((e for e in etapes_cohorte if 'test' in e.nom.lower() or e.ordre == 3), None)
+            
+            part_test = None
+            if etape_test:
+                part_test, _ = ParticipationEtape.objects.get_or_create(
+                    candidature=candidature,
+                    etape=etape_test,
+                    defaults={'statut': StatutEtape.EN_ATTENTE}
+                )
+
+            envoyer_notification(
+                candidature,
+                TypeNotification.CONVOCATION,
+                'Étape 3 : Accès au Test QCM',
+                'Votre confirmation a bien été enregistrée. Vous pouvez désormais passer votre test QCM depuis votre espace candidat.'
+            )
+
+            return Response({
+                'detail': 'Choix enregistré. Vous continuez la procédure de candidature !',
+                'continuer': True,
+                'participationTestId': part_test.id if part_test else None
+            })
+
+        else:
+            # Le candidat a choisi de ne pas continuer
+            participation.statut = StatutEtape.ANNULEE
+            participation.dateSortie = timezone.now()
+            participation.motif = 'Le candidat a choisi d arrêter sa candidature après la réunion d information.'
+            participation.save(update_fields=['statut', 'dateSortie', 'motif'])
+
+            candidature.statut = StatutCandidature.TERMINEE
+            candidature.save(update_fields=['statut'])
+
+            envoyer_notification(
+                candidature,
+                TypeNotification.FIN_PARCOURS,
+                'Fin de votre candidature',
+                'Votre décision d arrêter votre candidature a bien été prise en compte.'
+            )
+
+            return Response({
+                'detail': 'Votre décision d arrêter votre candidature a bien été enregistrée.',
+                'continuer': False
+            })
+
+
+# ============================================================================
+# VUES QCM (ÉQUIPE PÉDAGOGIQUE)
+# ============================================================================
+
+class TestQCMViewSet(viewsets.ModelViewSet):
+    """API CRUD pour les tests QCM gérés par l'Équipe Pédagogique."""
+    queryset = TestQCM.objects.all()
+    serializer_class = TestQCMSerializer
+    permission_classes = [EstAdminOuPedagogie]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        etape_id = self.request.query_params.get('etape')
+        if etape_id:
+            queryset = queryset.filter(etape_id=etape_id)
+        cohorte_id = self.request.query_params.get('cohorte')
+        if cohorte_id:
+            queryset = queryset.filter(etape__cohorte_id=cohorte_id)
+        return queryset
+
+    @action(detail=True, methods=['post'], url_path='publier')
+    def publier(self, request, pk=None):
+        test = self.get_object()
+        if not test.questions.exists():
+            return Response(
+                {"detail": "Impossible de publier un test sans question."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        test.estPublie = not test.estPublie
+        test.save(update_fields=['estPublie'])
+
+        if test.estPublie:
+            # Informer les candidats à l'Étape 3 que le test est publié
+            participations = ParticipationEtape.objects.filter(
+                etape=test.etape,
+                candidature__statut__in=[StatutCandidature.EN_COURS, StatutCandidature.EN_ATTENTE]
+            ).select_related('candidature')
+            for part in participations:
+                envoyer_notification(
+                    part.candidature,
+                    TypeNotification.CONVOCATION,
+                    'Étape 3 : Le Test QCM est désormais disponible',
+                    f'Le test QCM « {test.titre} » a été publié par l\'Équipe Pédagogique. Vous pouvez dès à présent le passer sur votre espace candidat.'
+                )
+
+        statut_txt = "publié" if test.estPublie else "dépublié"
+        return Response({"detail": f"Le test QCM est désormais {statut_txt}.", "estPublie": test.estPublie})
+
+    @action(detail=True, methods=['get'], url_path='passages')
+    def passages(self, request, pk=None):
+        test = self.get_object()
+        passages = test.passages.select_related('participation__candidature__utilisateur').all()
+        data = []
+        for p in passages:
+            cand = p.participation.candidature
+            user = cand.utilisateur
+            data.append({
+                "id": p.id,
+                "candidatureNumero": cand.numero,
+                "candidatNom": user.get_full_name() or user.email,
+                "candidatEmail": user.email,
+                "scoreObtenu": float(p.scoreObtenu),
+                "estAdmis": p.estAdmis,
+                "statut": p.statut,
+                "dateDebut": p.dateDebut,
+                "dateFin": p.dateFin
+            })
+        return Response(data)
+
+
+# ============================================================================
+# VUES QCM (CANDIDAT - ÉTAPE 3)
+# ============================================================================
+
+class CandidateTestDetailsView(APIView):
+    """Récupère les détails du test QCM assigné à une participation (Étape 3)."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, participation_id):
+        participation = get_object_or_404(ParticipationEtape, pk=participation_id)
+        
+        # Vérification que l'utilisateur est le propriétaire de la candidature
+        if participation.candidature.utilisateur != request.user and not request.user.est_admin():
+            return Response({"detail": "Accès non autorisé."}, status=status.HTTP_403_FORBIDDEN)
+
+        # Recherche d'un test publié associé à l'étape
+        test = TestQCM.objects.filter(etape=participation.etape, estPublie=True).first()
+        if not test:
+            return Response(
+                {"detail": "Aucun test QCM n'est encore disponible pour cette étape."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        passage = PassageTestQCM.objects.filter(participation=participation, test=test).first()
+
+        data = {
+            "test": TestCandidatQCMSerializer(test).data,
+            "participationId": participation.id,
+            "statutParticipation": participation.statut,
+            "passage": {
+                "id": passage.id,
+                "statut": passage.statut,
+                "scoreObtenu": float(passage.scoreObtenu),
+                "estAdmis": passage.estAdmis,
+                "dateDebut": passage.dateDebut,
+                "dateFin": passage.dateFin
+            } if passage else None
+        }
+
+        return Response(data)
+
+
+class CandidateStartTestView(APIView):
+    """Démarre le chrono d'un passage de test QCM."""
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, participation_id):
+        participation = get_object_or_404(ParticipationEtape, pk=participation_id)
+
+        if participation.candidature.utilisateur != request.user and not request.user.est_admin():
+            return Response({"detail": "Accès non autorisé."}, status=status.HTTP_403_FORBIDDEN)
+
+        test = get_object_or_404(TestQCM, etape=participation.etape, estPublie=True)
+
+        passage, created = PassageTestQCM.objects.get_or_create(
+            participation=participation,
+            test=test,
+            defaults={'statut': StatutPassageTest.EN_COURS}
+        )
+
+        return Response({
+            "passageId": passage.id,
+            "dateDebut": passage.dateDebut,
+            "dureeMinutes": test.dureeMinutes,
+            "statut": passage.statut,
+            "test": TestCandidatQCMSerializer(test).data
+        })
+
+
+class CandidateSubmitTestView(APIView):
+    """Soumet les réponses au test QCM, calcule le score et fait passer le candidat à l'Étape 4 (Non bloquant)."""
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, participation_id):
+        participation = get_object_or_404(ParticipationEtape, pk=participation_id)
+
+        if participation.candidature.utilisateur != request.user and not request.user.est_admin():
+            return Response({"detail": "Accès non autorisé."}, status=status.HTTP_403_FORBIDDEN)
+
+        test = get_object_or_404(TestQCM, etape=participation.etape, estPublie=True)
+        passage = get_object_or_404(PassageTestQCM, participation=participation, test=test)
+
+        if passage.statut in [StatutPassageTest.SOUMIS, StatutPassageTest.EXPIRE]:
+            return Response({"detail": "Ce test a déjà été soumis."}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = SoumissionTestQCMSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        reponses_data = serializer.validated_data['reponses']
+        
+        score_total = 0.0
+
+        for r in reponses_data:
+            q_id = r['questionId']
+            opt_ids = r['optionIds']
+            
+            question = get_object_or_404(QuestionQCM, pk=q_id, test=test)
+            reponse_obj, _ = ReponseCandidatQCM.objects.get_or_create(passage=passage, question=question)
+            
+            options_choisies = OptionQCM.objects.filter(pk__in=opt_ids, question=question)
+            reponse_obj.optionsChoisies.set(options_choisies)
+
+            # Calcul des points de la question
+            correct_options = set(question.options.filter(estCorrecte=True).values_list('id', flat=True))
+            user_options = set(options_choisies.values_list('id', flat=True))
+
+            if correct_options == user_options and len(user_options) > 0:
+                score_total += float(question.points)
+
+        # Clôture du passage
+        passage.scoreObtenu = score_total
+        passage.statut = StatutPassageTest.SOUMIS
+        passage.dateFin = timezone.now()
+
+        # Évaluation indicative de la réussite
+        est_admis = (score_total >= float(test.notePassage))
+        passage.estAdmis = est_admis
+        passage.save()
+
+        # Validation de la participation à l'Étape 3
+        participation.statut = StatutEtape.REUSSIE
+        participation.dateSortie = timezone.now()
+        participation.save()
+
+        # Passage automatique à l'Étape 4 (Entretien technique & Motivation) - Étape 3 NON BLOQUANTE !
+        etape_suivante_creee = False
+        etapes_cohorte = list(Etape.objects.filter(cohorte=participation.etape.cohorte).order_by('ordre'))
+        try:
+            current_idx = [e.id for e in etapes_cohorte].index(participation.etape.id)
+            if current_idx + 1 < len(etapes_cohorte):
+                next_etape = etapes_cohorte[current_idx + 1]
+                ParticipationEtape.objects.get_or_create(
+                    candidature=participation.candidature,
+                    etape=next_etape,
+                    defaults={'statut': StatutEtape.EN_ATTENTE}
+                )
+                etape_suivante_creee = True
+        except ValueError:
+            pass
+
+        return Response({
+            "detail": "Test QCM soumis avec succès.",
+            "scoreObtenu": score_total,
+            "baremeTotal": float(test.baremeTotal),
+            "notePassage": float(test.notePassage),
+            "estAdmis": est_admis,
+            "statutEtape": participation.statut,
+            "etapeSuivanteCreee": etape_suivante_creee
+        })
+
+

@@ -47,13 +47,20 @@ class CohorteSerializer(serializers.ModelSerializer):
         return obj.formation.nom if obj.formation else None
 
     def get_etapes(self, obj):
-        if not obj.etapes.exists():
-            Etape.objects.bulk_create([
-                Etape(cohorte=obj, nom="Réunion d'information", ordre=1),
-                Etape(cohorte=obj, nom='Entretien technique et motivation', ordre=2),
-                Etape(cohorte=obj, nom='Entretien final', ordre=3),
-            ])
-        return EtapeInlineSerializer(obj.etapes.all(), many=True).data
+        definition_etapes = [
+            ("Candidature", 1),
+            ("Réunion d'information", 2),
+            ("Test", 3),
+            ("Entretien technique et motivation", 4),
+            ("Entretien final", 5),
+        ]
+        etapes_to_create = []
+        for nom, ordre in definition_etapes:
+            if not obj.etapes.filter(nom__icontains=nom[:4]).exists():
+                etapes_to_create.append(Etape(cohorte=obj, nom=nom, ordre=ordre))
+        if etapes_to_create:
+            Etape.objects.bulk_create(etapes_to_create)
+        return EtapeInlineSerializer(obj.etapes.all().order_by('ordre'), many=True).data
 
     def validate(self, data):
         debut = data.get('dateDebut')
@@ -65,12 +72,18 @@ class CohorteSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
-        """Initialise le parcours de sélection dès la création d'une cohorte."""
+        """Initialise le parcours de sélection (5 étapes) dès la création d'une cohorte."""
         cohorte = super().create(validated_data)
+        definition_etapes = [
+            ("Candidature", 1),
+            ("Réunion d'information", 2),
+            ("Test", 3),
+            ("Entretien technique et motivation", 4),
+            ("Entretien final", 5),
+        ]
         Etape.objects.bulk_create([
-            Etape(cohorte=cohorte, nom="Réunion d'information", ordre=1),
-            Etape(cohorte=cohorte, nom='Entretien technique et motivation', ordre=2),
-            Etape(cohorte=cohorte, nom='Entretien final', ordre=3),
+            Etape(cohorte=cohorte, nom=nom, ordre=ordre)
+            for nom, ordre in definition_etapes
         ])
         return cohorte
 

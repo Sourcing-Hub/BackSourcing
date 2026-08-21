@@ -123,3 +123,99 @@ class Decision(models.Model):
     dateDecision = models.DateTimeField(auto_now_add=True)
     
     candidature = models.OneToOneField('candidatures.Candidature', on_delete=models.CASCADE, related_name='decision_finale')
+
+
+class TypeChoixQCM(models.TextChoices):
+    CHOIX_UNIQUE = 'CHOIX_UNIQUE', 'Choix unique'
+    CHOIX_MULTIPLE = 'CHOIX_MULTIPLE', 'Choix multiple'
+
+
+class StatutPassageTest(models.TextChoices):
+    EN_COURS = 'EN_COURS', 'En cours'
+    SOUMIS = 'SOUMIS', 'Soumis'
+    EXPIRE = 'EXPIRE', 'Expiré'
+
+
+class TestQCM(models.Model):
+    """Test QCM créé par l'Équipe Pédagogique rattaché à une Étape (Étape 3 - Test)."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    titre = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    dureeMinutes = models.PositiveIntegerField(default=30, help_text="Durée maximale du test en minutes")
+    baremeTotal = models.DecimalField(max_digits=5, decimal_places=2, default=20.00)
+    notePassage = models.DecimalField(max_digits=5, decimal_places=2, default=10.00, help_text="Note minimale pour valider l'étape")
+    estPublie = models.BooleanField(default=False)
+    dateCreation = models.DateTimeField(auto_now_add=True)
+    
+    etape = models.ForeignKey(Etape, on_delete=models.CASCADE, related_name='tests_qcm')
+    creePar = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='tests_crees')
+
+    class Meta:
+        ordering = ['-dateCreation']
+
+    def __str__(self):
+        return f"QCM: {self.titre} ({self.etape.nom})"
+
+
+class QuestionQCM(models.Model):
+    """Question individuelle d'un test QCM."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    intitule = models.TextField()
+    explication = models.TextField(blank=True, null=True, help_text="Explication de la réponse affichée après évaluation")
+    typeQuestion = models.CharField(max_length=20, choices=TypeChoixQCM.choices, default=TypeChoixQCM.CHOIX_UNIQUE)
+    points = models.DecimalField(max_digits=5, decimal_places=2, default=1.00)
+    ordre = models.IntegerField(default=1)
+
+    test = models.ForeignKey(TestQCM, on_delete=models.CASCADE, related_name='questions')
+
+    class Meta:
+        ordering = ['ordre']
+
+    def __str__(self):
+        return f"Q{self.ordre}: {self.intitule[:50]}"
+
+
+class OptionQCM(models.Model):
+    """Proposition de réponse pour une question QCM."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    texte = models.TextField()
+    estCorrecte = models.BooleanField(default=False)
+    ordre = models.IntegerField(default=1)
+
+    question = models.ForeignKey(QuestionQCM, on_delete=models.CASCADE, related_name='options')
+
+    class Meta:
+        ordering = ['ordre']
+
+    def __str__(self):
+        return f"Option {self.ordre} ({'Vrai' if self.estCorrecte else 'Faux'})"
+
+
+class PassageTestQCM(models.Model):
+    """Session d'un candidat passant un test QCM."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    dateDebut = models.DateTimeField(auto_now_add=True)
+    dateFin = models.DateTimeField(blank=True, null=True)
+    scoreObtenu = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    statut = models.CharField(max_length=20, choices=StatutPassageTest.choices, default=StatutPassageTest.EN_COURS)
+    estAdmis = models.BooleanField(default=False)
+
+    participation = models.OneToOneField(ParticipationEtape, on_delete=models.CASCADE, related_name='passage_test_qcm')
+    test = models.ForeignKey(TestQCM, on_delete=models.CASCADE, related_name='passages')
+
+    def __str__(self):
+        return f"Passage de {self.participation.candidature.numero} au QCM {self.test.titre}"
+
+
+class ReponseCandidatQCM(models.Model):
+    """Réponse(s) sélectionnée(s) par le candidat pour une question."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    passage = models.ForeignKey(PassageTestQCM, on_delete=models.CASCADE, related_name='reponses')
+    question = models.ForeignKey(QuestionQCM, on_delete=models.CASCADE, related_name='reponses_candidats')
+    optionsChoisies = models.ManyToManyField(OptionQCM, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['passage', 'question'], name='reponse_unique_par_question_passage')
+        ]
+

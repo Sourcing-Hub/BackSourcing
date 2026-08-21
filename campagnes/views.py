@@ -300,3 +300,40 @@ class CampagnePubliqueDetailView(APIView):
         return Response(CampagneDetailSerializer(obj).data)
 
 
+class FormationPubliqueListeView(APIView):
+    """
+    GET /api/campagnes/formations/publiques/
+    Accès public. Liste toutes les formations disponibles.
+    Inclut le nombre de campagnes actives par formation.
+    """
+    permission_classes = []
+
+    def get(self, request):
+        from django.utils import timezone
+        from django.db.models import Count, Q
+        now = timezone.now()
+        filtre_campagnes_actives = Q(
+            cohortes__campagnes__statut='OUVERTE',
+            cohortes__campagnes__publiee=True,
+            cohortes__campagnes__dateOuverture__lte=now,
+            cohortes__campagnes__dateCloture__gte=now,
+        )
+        # On récupère TOUTES les formations, et on annote le nombre de campagnes actives
+        qs = Formation.objects.all().annotate(
+            nb_campagnes_actives=Count(
+                'cohortes__campagnes',
+                filter=filtre_campagnes_actives
+            )
+        ).distinct().order_by('nom')
+        data = []
+        for f in qs:
+            data.append({
+                'id': str(f.id),
+                'nom': f.nom,
+                'description': f.description,
+                'dateDebut': f.dateDebut,
+                'dateFin': f.dateFin,
+                'nb_campagnes_actives': f.nb_campagnes_actives,
+            })
+        return Response(data)
+

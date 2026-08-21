@@ -1,11 +1,16 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 from .views import (
     CandidatScanDetailsView, ParticipationEtapeChangerStatutView,
     PlanningListeView, PlanningDetailView, PlanningConfigurationView, EncadrantsPlanningView,
     ConvocationCandidatsView, ConvocationAffectationView,
     EmargementSessionsView, EmargementSessionDetailView, EmargementPresenceView, EmargementQrView,
     EmargementCloturerView, ConfirmationPresenceView,
+    TestQCMViewSet, CandidateTestDetailsView, CandidateStartTestView, CandidateSubmitTestView,
 )
+
+router = DefaultRouter()
+router.register(r'tests', TestQCMViewSet, basename='tests-qcm')
 
 urlpatterns = [
     path('candidat/<uuid:candidate_id>/scan-details/', CandidatScanDetailsView.as_view(), name='candidat-scan-details'),
@@ -22,4 +27,13 @@ urlpatterns = [
     path('emargement/qr/<uuid:token>/', EmargementQrView.as_view(), name='emargement-qr'),
     path('confirmation-presence/<uuid:token>/', ConfirmationPresenceView.as_view(), name='confirmation-presence'),
     path('plannings/<uuid:pk>/', PlanningDetailView.as_view(), name='plannings-detail'),
+
+    # Routes QCM (Équipe Pédagogique)
+    path('', include(router.urls)),
+
+    # Routes QCM (Candidats - Étape 3)
+    path('participations/<uuid:participation_id>/test-details/', CandidateTestDetailsView.as_view(), name='candidat-test-details'),
+    path('participations/<uuid:participation_id>/commencer-test/', CandidateStartTestView.as_view(), name='candidat-commencer-test'),
+    path('participations/<uuid:participation_id>/soumettre-test/', CandidateSubmitTestView.as_view(), name='candidat-soumettre-test'),
 ]
+

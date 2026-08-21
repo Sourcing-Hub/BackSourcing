@@ -5,6 +5,7 @@ from .views import (
     CampagneListeView, CampagneDetailView,
     CampagneOuvrirView, CampagneFermerView,
     CampagnePubliqueListeView, CampagnePubliqueDetailView,
+    FormationPubliqueListeView,
 )
 
 urlpatterns = [
@@ -15,6 +16,7 @@ urlpatterns = [
     # Formations
     path('formations/', FormationListeView.as_view(), name='formations-liste'),
     path('formations/<uuid:pk>/', FormationDetailView.as_view(), name='formations-detail'),
+    path('formations/publiques/', FormationPubliqueListeView.as_view(), name='formations-publiques'),
 
     # Cohortes
     path('cohortes/', CohorteListeView.as_view(), name='cohortes-liste'),

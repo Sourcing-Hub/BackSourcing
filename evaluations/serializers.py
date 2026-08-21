@@ -1,7 +1,10 @@
 from rest_framework import serializers
 from django.db import transaction
 from utilisateurs.models import Utilisateur, NomRole
-from .models import AffectationEvaluateur, Etape, ParticipationEtape, Session
+from .models import (
+    AffectationEvaluateur, Etape, ParticipationEtape, Session,
+    TestQCM, QuestionQCM, OptionQCM, PassageTestQCM, ReponseCandidatQCM, StatutPassageTest
+)
 
 class EtapeSerializer(serializers.ModelSerializer):
     """Sérialiseur pour la consultation des étapes d'évaluation."""
@@ -99,3 +102,109 @@ class PlanningConfigurationSerializer(serializers.Serializer):
                     AffectationEvaluateur.objects.create(evaluateur=coach_motivation, session=session, roleEncadrement='MOTIVATION')
                 sessions.append(session)
         return sessions
+
+
+# ============================================================================
+# SÉRIALISEURS QCM (ÉQUIPE PÉDAGOGIQUE & CANDIDATS)
+# ============================================================================
+
+class OptionQCMSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OptionQCM
+        fields = ['id', 'texte', 'estCorrecte', 'ordre']
+
+
+class QuestionQCMSerializer(serializers.ModelSerializer):
+    options = OptionQCMSerializer(many=True, required=False)
+
+    class Meta:
+        model = QuestionQCM
+        fields = ['id', 'intitule', 'explication', 'typeQuestion', 'points', 'ordre', 'options']
+
+
+class TestQCMSerializer(serializers.ModelSerializer):
+    questions = QuestionQCMSerializer(many=True, required=False)
+    etape_nom = serializers.CharField(source='etape.nom', read_only=True)
+    cohorte_nom = serializers.CharField(source='etape.cohorte.nom', read_only=True)
+    formation_nom = serializers.CharField(source='etape.cohorte.formation.nom', read_only=True)
+    nombreQuestions = serializers.IntegerField(source='questions.count', read_only=True)
+
+    class Meta:
+        model = TestQCM
+        fields = [
+            'id', 'titre', 'description', 'dureeMinutes', 'baremeTotal', 'notePassage',
+            'estPublie', 'dateCreation', 'etape', 'etape_nom', 'cohorte_nom', 'formation_nom',
+            'creePar', 'nombreQuestions', 'questions'
+        ]
+        read_only_fields = ['id', 'dateCreation', 'creePar', 'etape_nom', 'cohorte_nom', 'formation_nom', 'nombreQuestions']
+
+    @transaction.atomic
+    def create(self, validated_data):
+        questions_data = validated_data.pop('questions', [])
+        validated_data['creePar'] = self.context['request'].user
+        test = TestQCM.objects.create(**validated_data)
+        
+        for q_idx, q_data in enumerate(questions_data, start=1):
+            options_data = q_data.pop('options', [])
+            q_data['ordre'] = q_data.get('ordre', q_idx)
+            question = QuestionQCM.objects.create(test=test, **q_data)
+            for o_idx, o_data in enumerate(options_data, start=1):
+                o_data['ordre'] = o_data.get('ordre', o_idx)
+                OptionQCM.objects.create(question=question, **o_data)
+                
+        return test
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        questions_data = validated_data.pop('questions', None)
+        
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        if questions_data is not None:
+            instance.questions.all().delete()
+            for q_idx, q_data in enumerate(questions_data, start=1):
+                options_data = q_data.pop('options', [])
+                q_data['ordre'] = q_data.get('ordre', q_idx)
+                question = QuestionQCM.objects.create(test=instance, **q_data)
+                for o_idx, o_data in enumerate(options_data, start=1):
+                    o_data['ordre'] = o_data.get('ordre', o_idx)
+                    OptionQCM.objects.create(question=question, **o_data)
+
+        return instance
+
+
+class OptionCandidatQCMSerializer(serializers.ModelSerializer):
+    """Option sans le champ estCorrecte pour le candidat."""
+    class Meta:
+        model = OptionQCM
+        fields = ['id', 'texte', 'ordre']
+
+
+class QuestionCandidatQCMSerializer(serializers.ModelSerializer):
+    """Question sans l'explication ni estCorrecte pour le candidat."""
+    options = OptionCandidatQCMSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = QuestionQCM
+        fields = ['id', 'intitule', 'typeQuestion', 'points', 'ordre', 'options']
+
+
+class TestCandidatQCMSerializer(serializers.ModelSerializer):
+    """Test avec questions filtrées pour le candidat."""
+    questions = QuestionCandidatQCMSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = TestQCM
+        fields = ['id', 'titre', 'description', 'dureeMinutes', 'baremeTotal', 'questions']
+
+
+class ReponseSoumissionSerializer(serializers.Serializer):
+    questionId = serializers.UUIDField()
+    optionIds = serializers.ListField(child=serializers.UUIDField(), allow_empty=True)
+
+
+class SoumissionTestQCMSerializer(serializers.Serializer):
+    reponses = ReponseSoumissionSerializer(many=True)
+
