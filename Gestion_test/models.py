@@ -1,4 +1,5 @@
 from django.db import models
+from campagnes.models import Campagne
 
 class Test(models.Model):
     class StatusChoices(models.TextChoices):
@@ -7,8 +8,15 @@ class Test(models.Model):
         NOUVEAU = 'nouveau', 'Nouveau'
 
     nom = models.CharField(max_length=255, verbose_name="Nom du test")
-   
-    campagne_assossiée = models.CharField(max_length=255, verbose_name="Formation/Offre associée", blank=True, null=True)
+    
+    campagne_assossiee = models.ForeignKey(
+        Campagne, 
+        on_delete=models.CASCADE, 
+        related_name='tests',
+        null=True, 
+        blank=True
+    )
+    # campagne_assossiee = models.CharField(max_length=255, verbose_name="Formation/Offre associée", blank=True, null=True)
     
     lien_ressource = models.URLField(max_length=500, blank=True, null=True, verbose_name="Lien de la ressource (URL)")
     

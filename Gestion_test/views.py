@@ -11,56 +11,180 @@ from django.contrib.auth import get_user_model
 from .serializers import SoumissionTestSerializer
 from rest_framework.parsers import MultiPartParser, FormParser
 from .models import SoumissionTest
+from evaluations.models import AffectationCandidat, StatutPresence
+from notifications.models import Notification, StatutNotification, TypeNotification
 import io
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from django.http import HttpResponse
+from rest_framework.permissions import AllowAny, IsAuthenticated
 
+
+def candidats_presents_reunion_information(campagne):
+    """Candidatures présentes à la première étape, la réunion d'information."""
+    return (
+        AffectationCandidat.objects.filter(
+            participation_etape__candidature__campagne=campagne,
+            participation_etape__etape__ordre=1,
+            statutPresence=StatutPresence.PRESENT,
+            participation_etape__candidature__utilisateur__email__isnull=False,
+        )
+        .exclude(participation_etape__candidature__utilisateur__email='')
+        .select_related('participation_etape__candidature__utilisateur')
+        .order_by(
+            'participation_etape__candidature__utilisateur__last_name',
+            'participation_etape__candidature__utilisateur__first_name',
+        )
+    )
 
 class TestViewSet(viewsets.ModelViewSet):
     queryset = Test.objects.all().order_by('-date_creation')
     serializer_class = TestSerializer
+    permission_classes = [AllowAny]
+
+    @action(detail=False, methods=['get'], url_path='mes-tests', permission_classes=[IsAuthenticated])
+    def mes_tests(self, request):
+        """Tests actifs accessibles au candidat connecté."""
+        if not request.user.est_candidat():
+            return Response(
+                {'detail': 'Cette ressource est réservée aux candidats.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        tests = Test.objects.filter(
+            statut=Test.StatusChoices.ACTIF,
+            campagne_assossiee__candidatures__utilisateur=request.user,
+            campagne_assossiee__candidatures__participations__etape__ordre=1,
+            campagne_assossiee__candidatures__participations__affectation_session__statutPresence=StatutPresence.PRESENT,
+        ).select_related('campagne_assossiee').distinct().order_by('-date_creation')
+
+        data = []
+        for test in tests:
+            ressource_url = test.lien_ressource
+            if not ressource_url and test.fichier_ressource:
+                ressource_url = request.build_absolute_uri(test.fichier_ressource.url)
+            data.append({
+                'id': test.id,
+                'nom': test.nom,
+                'description': test.description,
+                'date_ouverture': test.date_ouverture,
+                'date_cloture': test.date_cloture,
+                'campagne': test.campagne_assossiee.nom,
+                'ressource_url': ressource_url,
+            })
+        return Response(data)
+
+    @action(detail=True, methods=['get'], url_path='candidats-presents')
+    def candidats_presents(self, request, pk=None):
+        """Liste les candidats présents et notifiables de la campagne du test."""
+        test = self.get_object()
+        if not test.campagne_assossiee:
+            return Response(
+                {'detail': 'Ce test n’est associé à aucune campagne.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        candidats = []
+        seen_candidatures = set()
+        for affectation in candidats_presents_reunion_information(test.campagne_assossiee):
+            candidature = affectation.participation_etape.candidature
+            if candidature.id in seen_candidatures:
+                continue
+            seen_candidatures.add(candidature.id)
+            utilisateur = candidature.utilisateur
+            candidats.append({
+                'id': candidature.id,
+                'numero': candidature.numero,
+                'nom': utilisateur.get_full_name() or utilisateur.email,
+                'email': utilisateur.email,
+            })
+        return Response(candidats)
 
     @action(detail=True, methods=['post'])
     def publier(self, request, pk=None):
         test = self.get_object()
-        
-        # 1. Récupérer les données envoyées depuis la modale du frontend
+
+        campagne = test.campagne_assossiee
+        if not campagne:
+            return Response(
+                {'detail': 'Ce test n’est associé à aucune campagne.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         candidats_ids = request.data.get('candidats_ids', [])
-        sujet = request.data.get('sujet', f"Votre test '{test.nom}' est disponible")
-        message_contenu = request.data.get('message', 'Bonjour, le test est maintenant disponible.')
-
-        if not candidats_ids:
-            return Response({"detail": "Veuillez sélectionner au moins un candidat."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # 2. Mettre à jour le statut du test (ex: 'ACTIF' selon tes choix de statut)
-        test.statut = 'ACTIF'  
-        test.save()
-
-        # 3. Récupérer les emails des utilisateurs sélectionnés qui ont le rôle 'Candidat'
-        # On filtre via le nom du rôle lié (Role.nom == NomRole.Candidat)
-        candidats = User.objects.filter(
-            id__in=candidats_ids, 
-            role__nom='Candidat' # Ou NomRole.Candidat
-        )
-        destinataires = [user.email for user in candidats if user.email]
-
-        if destinataires:
-            # 4. Envoyer l'e-mail
+        if isinstance(candidats_ids, str):
             try:
+                import json
+                candidats_ids = json.loads(candidats_ids)
+            except (TypeError, ValueError):
+                candidats_ids = [candidats_ids]
+        if not isinstance(candidats_ids, list) or not candidats_ids:
+            return Response(
+                {'detail': 'Veuillez sélectionner au moins un candidat.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        affectations = candidats_presents_reunion_information(campagne).filter(
+            participation_etape__candidature_id__in=candidats_ids,
+        )
+
+        candidats = {}
+        for affectation in affectations:
+            candidature = affectation.participation_etape.candidature
+            candidats[candidature.id] = candidature
+
+        if not candidats:
+            return Response(
+                {'detail': 'Aucun candidat présent à la réunion d’information pour cette campagne.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        sujet = request.data.get('sujet') or f"Votre test « {test.nom} » est disponible"
+        instructions = request.data.get('message') or test.description
+        lien = test.lien_ressource or f"{settings.FRONTEND_URL.rstrip('/')}/mes-tests"
+        date_limite = test.date_cloture.strftime('%d/%m/%Y à %H:%M') if test.date_cloture else 'non précisée'
+        envoyes = 0
+
+        try:
+            for candidature in candidats.values():
+                utilisateur = candidature.utilisateur
+                message = (
+                    f"Bonjour {utilisateur.first_name or utilisateur.email},\n\n"
+                    f"Le test « {test.nom} » est maintenant disponible.\n\n"
+                    f"Lien : {lien}\n\n"
+                    f"Instructions :\n{instructions}\n\n"
+                    f"Date limite : {date_limite}\n\n"
+                    "Cordialement,\nL’équipe SourcingHub"
+                )
                 send_mail(
                     subject=sujet,
-                    message=message_contenu,
+                    message=message,
                     from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=destinataires,
+                    recipient_list=[utilisateur.email],
                     fail_silently=False,
                 )
-            except Exception as e:
-                return Response({"detail": f"Erreur lors de l'envoi de l'email : {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                Notification.objects.create(
+                    type=TypeNotification.TEST,
+                    objet=sujet,
+                    contenu=message,
+                    statut=StatutNotification.ENVOYEE,
+                    utilisateur=utilisateur,
+                    candidature=candidature,
+                )
+                envoyes += 1
+        except Exception as exc:
+            return Response(
+                {'detail': f"Le test n’a pas été activé : erreur d’envoi après {envoyes} email(s). {exc}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        test.statut = Test.StatusChoices.ACTIF
+        test.save(update_fields=['statut'])
 
         return Response({
-            "detail": "Test publié avec succès et e-mails envoyés aux candidats.",
-            "statut_actuel": test.statut
+            'detail': 'Test publié et notifications envoyées aux candidats présents.',
+            'statut_actuel': test.statut,
+            'emails_envoyes': envoyes,
         }, status=status.HTTP_200_OK)
 
 
@@ -121,6 +245,7 @@ class TestViewSet(viewsets.ModelViewSet):
 class SoumissionTestViewSet(viewsets.ModelViewSet):
       queryset = SoumissionTest.objects.all().order_by('-date_soumission')
       serializer_class = SoumissionTestSerializer
+      permission_classes = [AllowAny]
     
     # INDISPENSABLE pour l'upload de fichiers : 
     # Ces parsers indiquent à Django qu'il doit accepter les données de type "multipart/form-data" (fichiers + texte)

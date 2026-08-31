@@ -9,9 +9,9 @@ class Migration(migrations.Migration):
         ('campagnes', '0002_initial'),
     ]
 
-    operations = [
-        migrations.RemoveField(
-            model_name='formation',
-            name='duree',
-        ),
-    ]
+    # operations = [
+    #     migrations.RemoveField(
+    #         model_name='formation',
+    #         name='duree',
+    #     ),
+    # ]

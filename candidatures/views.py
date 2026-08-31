@@ -88,10 +88,12 @@ class CandidatureSoumissionView(APIView):
             if Utilisateur.objects.filter(email=email).exists():
                 return Response({"detail": "Un compte avec cet e-mail existe déjà. Veuillez vous connecter pour candidater."}, status=status.HTTP_400_BAD_REQUEST)
 
-            try:
-                role_candidat = Role.objects.get(nom=NomRole.CANDIDAT)
-            except Role.DoesNotExist:
-                return Response({"detail": "Rôle Candidat introuvable dans le système."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            role_candidat, _ = Role.objects.get_or_create(
+                nom=NomRole.CANDIDAT,
+                defaults={
+                    'description': 'Candidat soumettant une candidature à une campagne de recrutement.',
+                },
+            )
 
             user = Utilisateur.objects.create(
                 email=email,
