@@ -233,18 +233,19 @@ def get_eligibilite_convocation(candidature, session, participations):
 
     if decision_type == TypeDecision.REFUSE:
         return False, 'Cette candidature est refusée et ne peut plus être convoquée.', participation_cible
-    if etape_cible.ordre >= 3 and decision_type != TypeDecision.ADMIS:
-        return False, 'Le candidat doit être admis avant une convocation à l’entretien final.', participation_cible
+
+    if candidature.statut == StatutCandidature.TERMINEE and decision_type != TypeDecision.ADMIS:
+        return False, 'Cette candidature est arrêtée ou clôturée.', participation_cible
+
+    if participation_cible and getattr(participation_cible, 'affectation_session', None) is not None:
+        return False, 'Déjà convoqué pour un créneau.', participation_cible
+    if participation_cible and participation_cible.statut in [StatutEtape.REUSSIE, StatutEtape.ECHOUEE, StatutEtape.ABSENT, StatutEtape.ANNULEE]:
+        return False, 'Cette étape est déjà terminée.', participation_cible
 
     etapes_precedentes = Etape.objects.filter(
         cohorte=etape_cible.cohorte,
         ordre__lt=etape_cible.ordre,
-    )
-
-    if participation_cible and getattr(participation_cible, 'affectation_session', None) is not None:
-        return False, 'Déjà convoqué pour un créneau.', participation_cible
-    if participation_cible and participation_cible.statut != StatutEtape.EN_ATTENTE:
-        return False, 'Cette étape est déjà en cours ou terminée.', participation_cible
+    ).order_by('ordre')
 
     for etape in etapes_precedentes:
         part = participations.get(etape.id)
@@ -263,7 +264,7 @@ def get_eligibilite_convocation(candidature, session, participations):
                 part.save(update_fields=['statut', 'dateSortie'])
 
         if not part or part.statut != StatutEtape.REUSSIE:
-            return False, 'Les étapes précédentes ne sont pas encore validées.', participation_cible
+            return False, f"L'étape précédente « {etape.nom} » n'est pas encore validée.", participation_cible
 
     return True, '', participation_cible
 
@@ -598,7 +599,7 @@ class EmargementQrView(APIView):
 
 
 class EmargementCloturerView(APIView):
-    """Clôture la session : les personnes non pointées sont absentes, les présentes reçoivent la confirmation."""
+    """Clôture la session : les personnes non pointées sont absentes, les présentes reçoivent le mail leur demandant si elles souhaitent continuer la candidature."""
     permission_classes = [EstAdminOuPedagogie]
 
     @transaction.atomic
@@ -626,7 +627,20 @@ class EmargementCloturerView(APIView):
                 absents += 1
             elif affectation.statutPresence == StatutPresence.PRESENT and not affectation.dateConfirmation:
                 lien = f"{settings.FRONTEND_URL}/confirmation-presence/{affectation.tokenConfirmation}"
-                envoyer_notification(candidature, TypeNotification.CONFIRMATION, 'Confirmez votre présence', f'Votre présence a été enregistrée. Confirmez-la via ce lien : {lien}')
+                nom_candidat = candidature.utilisateur.get_full_name() or candidature.utilisateur.email
+                objet = f"Poursuite de votre candidature — {session.etape.nom}"
+                contenu = (
+                    f"Bonjour {nom_candidat},\n\n"
+                    f"Nous vous remercions pour votre présence à la réunion d'information « {session.etape.nom} ».\n\n"
+                    f"Souhaitez-vous poursuivre la procédure de candidature pour la suite du processus de sélection ?\n\n"
+                    f"Veuillez nous faire part de votre décision en cliquant sur le lien ci-dessous :\n"
+                    f"{lien}\n\n"
+                    f"• Si vous confirmez votre souhait de continuer, vous recevrez l'accès au test de sélection dès qu'il sera programmé.\n"
+                    f"• Si vous décidez de ne pas continuer, votre parcours de candidature s'arrêtera à cette étape.\n\n"
+                    f"Cordialement,\n"
+                    f"L'équipe SourcingHub"
+                )
+                envoyer_notification(candidature, TypeNotification.CONFIRMATION, objet, contenu)
                 confirmations += 1
         return Response({'absents': absents, 'confirmationsEnvoyees': confirmations})
 
@@ -641,25 +655,42 @@ class ConfirmationPresenceView(APIView):
             'session__etape__cohorte', 'participation_etape__candidature__utilisateur'
         ), tokenConfirmation=token, statutPresence=StatutPresence.PRESENT)
         
-        candidature = affectation.participation_etape.candidature
+        participation = affectation.participation_etape
+        candidature = participation.candidature
+        
+        repondu = bool(affectation.dateConfirmation)
+        # Si le candidat a déjà répondu, choix est True s'il a continué (REUSSIE) ou False s'il a arrêté (ANNULEE / TERMINEE)
+        choix = None
+        if repondu:
+            choix = (participation.statut == StatutEtape.REUSSIE)
         
         return Response({
             'nom': candidature.utilisateur.get_full_name() or candidature.utilisateur.email,
             'etapeNom': affectation.session.etape.nom,
             'date': affectation.session.date,
-            'confirmee': bool(affectation.dateConfirmation),
+            'repondu': repondu,
+            'confirmee': repondu,  # rétrocompatibilité
+            'choix': choix,
             'statutCandidature': candidature.statut,
+            'statutParticipation': participation.statut,
         })
 
     @transaction.atomic
     def post(self, request, token):
         affectation = get_object_or_404(
-            AffectationCandidat.objects.select_for_update().select_related('session__etape__cohorte', 'participation_etape__candidature'),
+            AffectationCandidat.objects.select_for_update().select_related(
+                'session__etape__cohorte', 'participation_etape__candidature__utilisateur'
+            ),
             tokenConfirmation=token,
             statutPresence=StatutPresence.PRESENT
         )
         
-        continuer = request.data.get('continuer', True)
+        continuer_raw = request.data.get('continuer', True)
+        if isinstance(continuer_raw, str):
+            continuer = continuer_raw.lower() in ('true', '1', 'oui', 'yes')
+        else:
+            continuer = bool(continuer_raw)
+
         participation = affectation.participation_etape
         candidature = participation.candidature
 
@@ -668,41 +699,56 @@ class ConfirmationPresenceView(APIView):
             affectation.save(update_fields=['dateConfirmation'])
 
         if continuer:
-            # Valider l'étape 2 (Réunion d'information)
+            # Valider l'étape de Réunion d'information
             participation.statut = StatutEtape.REUSSIE
             participation.dateSortie = timezone.now()
             participation.save(update_fields=['statut', 'dateSortie'])
 
-            # Créer automatiquement la participation à l'Étape 3 (Test) pour ce candidat qui souhaite continuer !
+            # Assurer que la candidature est bien EN_COURS
+            if candidature.statut != StatutCandidature.EN_COURS:
+                candidature.statut = StatutCandidature.EN_COURS
+                candidature.save(update_fields=['statut'])
+
+            # Créer automatiquement la participation à l'Étape suivante (Test) pour ce candidat qui souhaite continuer
             etapes_cohorte = list(Etape.objects.filter(cohorte=affectation.session.etape.cohorte).order_by('ordre'))
             etape_test = next((e for e in etapes_cohorte if 'test' in e.nom.lower() or e.ordre == 3), None)
             
             part_test = None
+            test_publie = None
             if etape_test:
                 part_test, _ = ParticipationEtape.objects.get_or_create(
                     candidature=candidature,
                     etape=etape_test,
                     defaults={'statut': StatutEtape.EN_ATTENTE}
                 )
+                test_publie = TestQCM.objects.filter(etape=etape_test, estPublie=True).first()
 
-            envoyer_notification(
-                candidature,
-                TypeNotification.CONVOCATION,
-                'Étape 3 : Accès au Test QCM',
-                'Votre confirmation a bien été enregistrée. Vous pouvez désormais passer votre test QCM depuis votre espace candidat.'
-            )
+            if test_publie:
+                envoyer_notification(
+                    candidature,
+                    TypeNotification.CONVOCATION,
+                    'Étape 3 : Accès au Test QCM',
+                    f'Votre décision de continuer la candidature a bien été enregistrée. Le test « {test_publie.titre} » est désormais accessible depuis votre espace candidat.'
+                )
+            else:
+                envoyer_notification(
+                    candidature,
+                    TypeNotification.CONFIRMATION,
+                    'Poursuite de votre candidature confirmée',
+                    'Votre souhait de poursuivre la procédure de candidature a bien été enregistré. Vous recevrez une notification et un accès dès que le test de sélection sera créé et publié.'
+                )
 
             return Response({
-                'detail': 'Choix enregistré. Vous continuez la procédure de candidature !',
+                'detail': 'Votre choix de continuer la procédure a bien été enregistré.',
                 'continuer': True,
                 'participationTestId': part_test.id if part_test else None
             })
 
         else:
-            # Le candidat a choisi de ne pas continuer
+            # Le candidat a choisi de ne pas continuer : sa candidature s'arrête à la réunion d'information
             participation.statut = StatutEtape.ANNULEE
             participation.dateSortie = timezone.now()
-            participation.motif = 'Le candidat a choisi d arrêter sa candidature après la réunion d information.'
+            participation.motif = 'Le candidat a choisi d\'arrêter sa candidature après la réunion d\'information.'
             participation.save(update_fields=['statut', 'dateSortie', 'motif'])
 
             candidature.statut = StatutCandidature.TERMINEE
@@ -711,12 +757,12 @@ class ConfirmationPresenceView(APIView):
             envoyer_notification(
                 candidature,
                 TypeNotification.FIN_PARCOURS,
-                'Fin de votre candidature',
-                'Votre décision d arrêter votre candidature a bien été prise en compte.'
+                'Arrêt de votre candidature',
+                'Votre décision d\'arrêter votre candidature suite à la réunion d\'information a bien été prise en compte. Nous vous remercions pour votre intérêt.'
             )
 
             return Response({
-                'detail': 'Votre décision d arrêter votre candidature a bien été enregistrée.',
+                'detail': 'Votre décision d\'arrêter votre candidature a bien été enregistrée.',
                 'continuer': False
             })
 
@@ -1291,15 +1337,24 @@ class EvaluatorCandidatesView(APIView):
     permission_classes = [EstEvaluateur]
 
     def get(self, request):
-        affectations = AffectationCandidat.objects.filter(
-            session__affectations_evaluateurs__evaluateur=request.user,
-        ).select_related(
-            'participation_etape__candidature__utilisateur',
-            'participation_etape__candidature__campagne__cohorte__formation',
-        ).exclude(statutPresence=StatutPresence.ABSENT).distinct().order_by(
-            'participation_etape__candidature__utilisateur__last_name',
-            'participation_etape__candidature__utilisateur__first_name',
-        )
+        if request.user.est_admin():
+            affectations = AffectationCandidat.objects.select_related(
+                'participation_etape__candidature__utilisateur',
+                'participation_etape__candidature__campagne__cohorte__formation',
+            ).exclude(statutPresence=StatutPresence.ABSENT).distinct().order_by(
+                'participation_etape__candidature__utilisateur__last_name',
+                'participation_etape__candidature__utilisateur__first_name',
+            )
+        else:
+            affectations = AffectationCandidat.objects.filter(
+                session__affectations_evaluateurs__evaluateur=request.user,
+            ).select_related(
+                'participation_etape__candidature__utilisateur',
+                'participation_etape__candidature__campagne__cohorte__formation',
+            ).exclude(statutPresence=StatutPresence.ABSENT).distinct().order_by(
+                'participation_etape__candidature__utilisateur__last_name',
+                'participation_etape__candidature__utilisateur__first_name',
+            )
         candidatures = []
         vus = set()
         for affectation in affectations:
@@ -1315,11 +1370,17 @@ class EvaluatorCandidateDetailView(APIView):
     permission_classes = [EstEvaluateur]
 
     def get(self, request, candidate_id):
-        candidature = get_object_or_404(
-            Candidature.objects.select_related('utilisateur', 'campagne__cohorte__formation').distinct(),
-            utilisateur_id=candidate_id,
-            participations__affectation_session__session__affectations_evaluateurs__evaluateur=request.user,
-        )
+        if request.user.est_admin():
+            candidature = get_object_or_404(
+                Candidature.objects.select_related('utilisateur', 'campagne__cohorte__formation').distinct(),
+                utilisateur_id=candidate_id,
+            )
+        else:
+            candidature = get_object_or_404(
+                Candidature.objects.select_related('utilisateur', 'campagne__cohorte__formation').distinct(),
+                utilisateur_id=candidate_id,
+                participations__affectation_session__session__affectations_evaluateurs__evaluateur=request.user,
+            )
         return Response(serialize_candidate_from_candidature(candidature))
 
 
@@ -1327,6 +1388,17 @@ class EvaluatorInterviewsView(APIView):
     permission_classes = [EstEvaluateur]
 
     def get(self, request):
+        if request.user.est_admin():
+            affectations = AffectationCandidat.objects.select_related(
+                'session__etape__cohorte__formation',
+                'participation_etape__candidature__utilisateur',
+            ).exclude(statutPresence=StatutPresence.ABSENT).order_by('session__date', 'session__heureDebut')
+            data = []
+            for affectation in affectations:
+                for role in [AffectationEvaluateur.RoleEncadrement.TECHNIQUE, AffectationEvaluateur.RoleEncadrement.MOTIVATION]:
+                    data.append(serialize_interview(affectation, role))
+            return Response(data)
+
         evaluator_assignments = AffectationEvaluateur.objects.filter(
             evaluateur=request.user,
             roleEncadrement__in=ROLE_TO_QUESTION_TYPE.keys(),

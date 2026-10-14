@@ -7,7 +7,7 @@ from campagnes.models import Formation, Cohorte, Campagne
 from candidatures.models import Candidature, StatutCandidature
 from evaluations.models import (
     Etape, ParticipationEtape, TestQCM, QuestionQCM, OptionQCM,
-    PassageTestQCM, StatutPassageTest, StatutEtape
+    PassageTestQCM, StatutPassageTest, StatutEtape, StatutPresence, Session, AffectationCandidat
 )
 
 class TestQCMWorkflowTestCase(TestCase):
@@ -363,3 +363,120 @@ class EvaluatorEndpointsTestCase(TestCase):
         self.assertEqual(response.data['question'], 'Nouvelle question technique')
         self.assertEqual(response.data['type'], TypeQuestion.TECHNIQUE)
         self.assertEqual(Question.objects.get(id=response.data['id']).baremeMax, Decimal('10.00'))
+
+
+class ConfirmationPoursuiteCandidatureTestCase(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.role_candidat = Role.objects.create(nom=NomRole.CANDIDAT)
+        self.role_pedagogie = Role.objects.create(nom=NomRole.EQUIPE_PEDAGOGIQUE)
+
+        self.candidat = Utilisateur.objects.create_user(
+            username='candidat.test@example.com',
+            email='candidat.test@example.com',
+            password='password123',
+            first_name='Moussa',
+            last_name='Diallo',
+            role=self.role_candidat,
+        )
+        self.pedagogie = Utilisateur.objects.create_user(
+            username='pedagogie.test@example.com',
+            email='pedagogie.test@example.com',
+            password='password123',
+            role=self.role_pedagogie,
+        )
+
+        self.formation = Formation.objects.create(nom='Formation Développeur')
+        self.cohorte = Cohorte.objects.create(nom='Cohorte 2026', formation=self.formation)
+        self.campagne = Campagne.objects.create(
+            nom='Campagne 2026',
+            cohorte=self.cohorte,
+            dateOuverture=timezone.now(),
+            dateCloture=timezone.now(),
+        )
+
+        self.etape_reunion = Etape.objects.create(nom="Réunion d'information", ordre=2, cohorte=self.cohorte)
+        self.etape_test = Etape.objects.create(nom="Test QCM", ordre=3, cohorte=self.cohorte)
+
+        self.candidature = Candidature.objects.create(
+            numero='CND-POURSUITE-01',
+            utilisateur=self.candidat,
+            campagne=self.campagne,
+            statut=StatutCandidature.EN_COURS,
+        )
+        self.participation = ParticipationEtape.objects.create(
+            candidature=self.candidature,
+            etape=self.etape_reunion,
+            statut=StatutEtape.EN_COURS,
+        )
+        self.session = Session.objects.create(
+            date=date.today(),
+            heureDebut=time(10, 0),
+            heureFin=time(12, 0),
+            lieu='Amphi A',
+            capacite=50,
+            etape=self.etape_reunion,
+        )
+        self.affectation = AffectationCandidat.objects.create(
+            participation_etape=self.participation,
+            session=self.session,
+            statutPresence=StatutPresence.PRESENT,
+        )
+
+    def test_get_confirmation_page_details(self):
+        url = f'/api/evaluations/confirmation-presence/{self.affectation.tokenConfirmation}/'
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['nom'], 'Moussa Diallo')
+        self.assertEqual(response.data['etapeNom'], "Réunion d'information")
+        self.assertFalse(response.data['repondu'])
+        self.assertIsNone(response.data['choix'])
+
+    def test_candidat_choisit_de_continuer_la_candidature(self):
+        url = f'/api/evaluations/confirmation-presence/{self.affectation.tokenConfirmation}/'
+        response = self.client.post(url, {'continuer': True}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['continuer'])
+
+        # Vérifications en base de données
+        self.affectation.refresh_from_db()
+        self.assertIsNotNone(self.affectation.dateConfirmation)
+
+        self.participation.refresh_from_db()
+        self.assertEqual(self.participation.statut, StatutEtape.REUSSIE)
+
+        self.candidature.refresh_from_db()
+        self.assertEqual(self.candidature.statut, StatutCandidature.EN_COURS)
+
+        # L'étape suivante (Test) a bien été créée pour ce candidat
+        participation_test = ParticipationEtape.objects.filter(
+            candidature=self.candidature,
+            etape=self.etape_test,
+        ).first()
+        self.assertIsNotNone(participation_test)
+        self.assertEqual(participation_test.statut, StatutEtape.EN_ATTENTE)
+
+    def test_candidat_choisit_d_arreter_la_candidature(self):
+        url = f'/api/evaluations/confirmation-presence/{self.affectation.tokenConfirmation}/'
+        response = self.client.post(url, {'continuer': False}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data['continuer'])
+
+        # Vérifications en base de données
+        self.affectation.refresh_from_db()
+        self.assertIsNotNone(self.affectation.dateConfirmation)
+
+        self.participation.refresh_from_db()
+        self.assertEqual(self.participation.statut, StatutEtape.ANNULEE)
+
+        # La candidature s'arrête à la réunion d'information
+        self.candidature.refresh_from_db()
+        self.assertEqual(self.candidature.statut, StatutCandidature.TERMINEE)
+
+        # Aucune participation au test n'est créée
+        participation_test = ParticipationEtape.objects.filter(
+            candidature=self.candidature,
+            etape=self.etape_test,
+        ).first()
+        self.assertIsNone(participation_test)
+

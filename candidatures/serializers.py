@@ -34,6 +34,7 @@ class CandidatureDetailSerializer(serializers.ModelSerializer):
     documents = DocumentSerializer(many=True, read_only=True)
     formation_nom = serializers.SerializerMethodField()
     cohorte_nom = serializers.SerializerMethodField()
+    participations = serializers.SerializerMethodField()
 
     class Meta:
         model = Candidature
@@ -41,7 +42,7 @@ class CandidatureDetailSerializer(serializers.ModelSerializer):
             'id', 'numero', 'dateSoumission', 'statut',
             'candidat', 'campagne', 'campagne_details',
             'formation_nom', 'cohorte_nom',
-            'reponses', 'documents'
+            'reponses', 'documents', 'participations'
         ]
 
     def get_formation_nom(self, obj):
@@ -49,6 +50,30 @@ class CandidatureDetailSerializer(serializers.ModelSerializer):
 
     def get_cohorte_nom(self, obj):
         return obj.campagne.cohorte.nom if obj.campagne.cohorte else None
+
+    def get_participations(self, obj):
+        result = []
+        ordered_parts = sorted(obj.participations.select_related('etape').all(), key=lambda p: p.etape.ordre)
+        for part in ordered_parts:
+            test_qcm = part.etape.tests_qcm.filter(estPublie=True).first() if hasattr(part.etape, 'tests_qcm') else None
+            passage = getattr(part, 'passage_test_qcm', None)
+            
+            result.append({
+                'id': str(part.id),
+                'etape_id': str(part.etape.id),
+                'etape_nom': part.etape.nom,
+                'etape_ordre': part.etape.ordre,
+                'statut': part.statut,
+                'statut_display': part.get_statut_display(),
+                'test_disponible': bool(test_qcm),
+                'test_titre': test_qcm.titre if test_qcm else None,
+                'test_bareme': float(test_qcm.baremeTotal) if test_qcm else None,
+                'test_duree': test_qcm.dureeMinutes if test_qcm else None,
+                'passage_statut': passage.statut if passage else None,
+                'passage_score': float(passage.scoreObtenu) if passage and passage.scoreObtenu is not None else None,
+                'est_admis': passage.estAdmis if passage else None,
+            })
+        return result
 
 class CandidatureListSerializer(serializers.ModelSerializer):
     candidat_nom = serializers.SerializerMethodField()
