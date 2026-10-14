@@ -31,14 +31,18 @@ class EstEquipePedagogique(BasePermission):
 
 
 class EstEvaluateur(BasePermission):
-    """Autorise uniquement les évaluateurs."""
-    message = "Accès réservé aux évaluateurs."
+    """Autorise les évaluateurs, l'équipe pédagogique et les administrateurs."""
+    message = "Accès réservé aux évaluateurs et à l'équipe pédagogique."
 
     def has_permission(self, request, view):
         return (
             request.user
             and request.user.is_authenticated
-            and request.user.est_evaluateur()
+            and (
+                request.user.est_evaluateur()
+                or request.user.est_equipe_pedagogique()
+                or request.user.est_admin()
+            )
         )
 
 
